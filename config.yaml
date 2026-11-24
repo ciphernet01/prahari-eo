@@ -1,0 +1,48 @@
+camera:
+  device: 0
+  width: 640
+  height: 480
+  fps: 30
+  fov_h_deg: 55.0
+  fov_v_deg: 41.0
+  stale_ms: 500
+motors:
+  steps_per_rev: 3200
+  max_steps_per_second: 1000
+  acceleration_steps_per_second2: 1800
+  pan: {dir: 13, step: 19, en: 12, min_deg: -45, max_deg: 45, invert: false, max_dps: 90}
+  tilt: {dir: 24, step: 18, en: 4, min_deg: -20, max_deg: 30, invert: false, max_dps: 60}
+  homing_switches_enabled: false
+  home_pan_pin: 23
+  home_tilt_pin: 25
+safety:
+  deadman_timeout_ms: 300
+  lock_tolerance_px: 12
+  lock_frames_required: 10
+  jog_timeout_ms: 300
+  home_timeout_s: 15
+  buzzer_enabled: false
+  relay_pin: 26
+  relay_active_low: true
+  buzzer_pulse_ms: 300
+  buzzer_cooldown_s: 2.0
+  event_log: data/events.jsonl
+detect:
+  backend: color
+  color: {h_min: 0, h_max: 10, s_min: 120, v_min: 80, min_area: 400}
+  aruco: {dictionary: DICT_4X4_50, id: 7}
+  motion: {min_area: 600}
+control:
+  kp: 0.12
+  ki: 0.0
+  kd: 0.01
+  deadband_px: 6
+  lost_decay_ms: 300
+  max_pan_dps: 60
+  max_tilt_dps: 45
+  pan_sign: 1
+  tilt_sign: -1
+server:
+  host: 127.0.0.1
+  port: 8000
+  token: change-this-before-lan-access

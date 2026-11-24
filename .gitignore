@@ -1,0 +1,11 @@
+﻿.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+data/
+.env
+web/node_modules/
+web/tsconfig.tsbuildinfo
+PRAHARI-*.zip
+research.pdf
+sitrep.txt
