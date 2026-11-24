@@ -6,10 +6,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=dtc
-WorkingDirectory=/home/dtc/turret
+WorkingDirectory=/home/dtc/prahari-eo
 EnvironmentFile=-/etc/prahari.env
 ExecStartPre=/usr/bin/pinctrl set 12,4 op dl
-ExecStart=/home/dtc/turret-env/bin/python -m sentry.launch
+ExecStart=/home/dtc/prahari-env/bin/python -m sentry.launch
 ExecStopPost=/usr/bin/pinctrl set 12,4 op dl
 Restart=on-failure
 RestartSec=3

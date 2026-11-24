@@ -238,22 +238,37 @@ class SafetyController:
         with self._lock:
             if self.state != State.ARMED or self.mode != "manual" or not self.arm_on or \
                self._estop or self._fault:
-                raise RuntimeError("Manual jog requires calibrated axes, dashboard ARM on, and manual mode")
+                raise RuntimeError("Select JOG after calibrating both axes")
             self.motion.axes["pan"].set_velocity_dps(pan_dps)
             self.motion.axes["tilt"].set_velocity_dps(tilt_dps)
             self._jog_last = time.monotonic()
 
     def set_mode(self, mode: str) -> None:
-        if mode not in ("manual", "auto"):
-            raise ValueError("mode must be manual or auto")
+        if mode not in ("idle", "manual", "auto"):
+            raise ValueError("mode must be idle, manual, or auto")
         with self._lock:
-            if mode == "auto" and (self.state != State.ARMED or not self.arm_on or
-                                    self._estop or self._fault):
-                raise RuntimeError("Auto mode requires calibrated axes and dashboard ARM on")
+            if mode == "idle":
+                self._arm_enabled = False
+                self._deadman_held = False
+                self.motion.stop()
+                self.buzzer.off()
+                self.aimer.reset()
+                self.mode = "manual"
+                if not self._estop and not self._fault:
+                    self._transition(State.SAFE, "operator selected IDLE")
+                self.log.write("mode", mode="idle")
+                return
+            if self._estop or self._fault:
+                raise RuntimeError("E-stop/fault is latched; restart the service after resolving it")
+            if not all(axis.calibrated for axis in self.motion.axes.values()):
+                raise RuntimeError("Calibrate both axes before selecting JOG or AUTO")
             self.motion.stop()
             self.aimer.reset()
             self.lock_frames = 0
+            self._arm_enabled = True
             self.mode = mode
+            self._transition(State.ARMED if mode == "manual" else State.TRACKING,
+                             f"operator selected {mode.upper()}")
             self.log.write("mode", mode=mode)
 
     def telemetry(self) -> dict:

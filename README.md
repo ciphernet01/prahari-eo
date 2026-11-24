@@ -2,11 +2,10 @@
 
 PRAHARI is a Raspberry Pi 5 pan/tilt camera prototype for tracking a designated
 colour or ArUco marker. It uses the Waveshare Stepper Motor HAT (B), two NEMA 17
-motors, OpenCV, a local FastAPI service, and a browser dashboard. An optional relay output is reserved for a buzzer and is disabled by default.
-There is no projectile, laser, or person-detection model. The EO-C2 dashboard
-has no ARM, dead-man, or direct buzzer controls. The latest interface requires
-physical ARM/dead-man interlocks, but this backend does not yet read or enforce
-them; the dashboard reports those inputs unavailable and inhibits motion.
+motors, OpenCV, a local FastAPI service, and a browser dashboard. An optional relay output is reserved for a 5V buzzer and is disabled by default.
+The simple local workflow is IDLE, JOG, or AUTO; selecting JOG/AUTO after
+calibration enables camera motion. Manual movement uses WASD, arrow keys, or the
+on-screen pad. No projectile, laser, or person-detection model is included.
 
 This repository can be developed on Windows and copied to the Pi. The Pi is the
 hardware host for the finished system. Simulation is a development mode only.
@@ -58,24 +57,24 @@ spec. Install system packages so OpenCV and GPIO libraries match the Pi OS:
 sudo apt update
 sudo apt install -y python3-venv python3-opencv python3-numpy python3-lgpio \
   python3-gpiozero python3-yaml v4l-utils git
-cd ~/turret
-if [ ! -x ~/turret-env/bin/python ]; then python3 -m venv --system-site-packages ~/turret-env; fi
-source ~/turret-env/bin/activate
+cd ~/prahari-eo
+if [ ! -x ~/prahari-env/bin/python ]; then python3 -m venv --system-site-packages ~/prahari-env; fi
+source ~/prahari-env/bin/activate
 python -m pip install 'fastapi>=0.115,<1' 'uvicorn[standard]>=0.30,<1'
 ```
 
 Run **dry-run first**:
 
 ```bash
-PRAHARI_SIM=1 ~/turret-env/bin/python -m sentry.launch
+PRAHARI_SIM=1 PRAHARI_CAMERA_SIM=0 ~/prahari-env/bin/python -m sentry.launch
 ```
 
 For actual hardware, after the frame and travel stops are built and checked,
-run with `PRAHARI_SIM=0`. On real hardware, the local dashboard needs
-the token configured in `config.yaml` or `PRAHARI_TOKEN`. To use a second device
-on the trusted Wi-Fi, set a strong token and `PRAHARI_HOST=0.0.0.0`; never
+run with `PRAHARI_SIM=0`. The dashboard and API need no token while bound to
+loopback (`127.0.0.1`). To use a second device on trusted Wi-Fi, set a strong
+`PRAHARI_TOKEN` and `PRAHARI_HOST=0.0.0.0`; never
 forward the service port to the public internet. For a service install, run
-`bash scripts/install_pi.sh` from `~/turret`, create `/etc/prahari.env` with
+`bash scripts/install_pi.sh` from `~/prahari-eo`, create `/etc/prahari.env` with
 your chosen `PRAHARI_SIM`, `PRAHARI_HOST`, and `PRAHARI_TOKEN`, review the unit,
 then enable it:
 
@@ -90,46 +89,37 @@ the runtime reports non-zero flags as a fault.
 
 ## First real-hardware sequence
 
-1. Fit the frame and physical travel stops. Do not operate motors until the
-   physical ARM and dead-man switches are wired to documented GPIO inputs and
-   their state is enforced by the backend. The current repo has no pin mapping
-   or input implementation; do not guess switch pins. Home switches are optional
-   for zero calibration but required for the Home Axes command.
-2. Leave the buzzer relay disabled until its model and active polarity are
-   verified. The dashboard has no direct buzzer trigger endpoint.
-3. Start `PRAHARI_SIM=0` with the frame clear and an accessible 12 V switch.
-4. Center both axes and use **Set current position as zero** while the system is
-   safe. Motion controls remain inhibited until physical interlock telemetry and
-   enforcement are implemented in the backend.
-5. Tune the color detector for a dedicated red marker (or select an ArUco
-   marker through the API), then tune PID on a stationary, non-human target.
-6. Test target loss, e-stop, camera disconnect, and the physical motor-power
-   cut before operating with the frame assembled.
+1. Secure the camera pan/tilt assembly and confirm the configured soft limits
+   match the safe mechanical travel. Keep the motor power switch accessible.
+2. Keep the buzzer relay disabled while the buzzer is disconnected.
+3. Start with `PRAHARI_SIM=0` for real motors and the real camera. On the local
+   Pi, the service binds to `127.0.0.1`; no API token is required on loopback.
+4. With the axes centered and stationary, use **Set Current Zero** twice to
+   confirm calibration. Select **JOG** and use short WASD/arrow-pad movements.
+   Select **AUTO** for red/ArUco marker or motion tracking; select **IDLE** to
+   stop and disable motor movement.
+5. Test target loss, the E-STOP, camera disconnect, and the physical motor-power
+   cut before leaving a bench setup unattended.
 
-The software e-stop is latched by the E-STOP endpoint. The separate physical
-power cut is required because software cannot stop a driver after the Pi loses
-power. The current backend still contains legacy software ARM/dead-man routes,
-but the EO-C2 dashboard does not call them. Physical switch GPIO mappings and
-backend enforcement are outstanding integration work. This remains a local
-marker-tracking prototype, not a remote threat-response system.
-
+The E-STOP is latched; restarting the service clears it after the cause has been
+checked. The separate physical power cut is required because software cannot
+stop a driver if the Pi loses power. Keep the service on loopback unless you set
+a strong `PRAHARI_TOKEN` before binding it to a trusted LAN.
 ## Service surface
 
 - `GET /api/health`, `GET /api/telemetry`, `WS /ws/telemetry`
 - `GET /video` (MJPEG)
 - `POST /api/jog` (hold-to-move velocity; expires after 300 ms)
-- `POST /api/arm` and `POST /api/deadman` (legacy API routes; not called by EO-C2 UI)
+- `POST /api/arm` and `POST /api/deadman` (legacy routes; not called by dashboard)
 - `POST /api/home`, `POST /api/calibrate`, `POST /api/mode`
 - `POST /api/estop` (always accepted; no token needed)
 - `GET/PUT /api/config` for detector thresholds and PID gains
 - `GET /api/log`
 
-The browser dashboard does not expose ARM, dead-man, or direct buzzer controls. The service currently does not report physical ARM/dead-man switch inputs; the EO-C2 UI marks those inputs unavailable and inhibits motor jog/auto until the backend reports them. The `/api/arm` and `/api/deadman` routes remain in this legacy backend and are not called by the dashboard. There is no endpoint to directly switch the buzzer or bypass its lock check.
-The buzzer is disabled by default. The current backend lock cue still depends
-on its legacy software ARM/dead-man state and stable marker lock; that logic must
-be updated to use physical interlock inputs before hardware operation. The detector backends are `color` (default), `aruco`, and
-development-only `motion`. They detect a designated marker, not a person or
-animal.
+The dashboard has no ARM, dead-man, or direct buzzer buttons. JOG/AUTO mode
+selection enables motion after zero calibration; IDLE stops it. Buzzer output
+remains disabled unless explicitly configured. Detector choices are `color`,
+`aruco`, and `motion` (simple frame-difference motion detection).
 
 ## Software checks
 

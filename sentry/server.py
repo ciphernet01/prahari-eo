@@ -21,7 +21,7 @@ def token_value() -> str:
 
 
 def require_token(x_token: str | None = Header(default=None)) -> None:
-    if simulation_loopback():
+    if local_only():
         return
     expected = token_value()
     if not expected or not x_token or not hmac.compare_digest(x_token, expected):
@@ -46,8 +46,8 @@ app = FastAPI(title="PRAHARI", version="1.0.0", lifespan=lifespan)
 WEB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
 DIST = os.path.join(WEB, "dist")
 
-def simulation_loopback() -> bool:
-    return config["runtime"]["simulation"] and config["server"]["host"] in ("127.0.0.1", "localhost", "::1")
+def local_only() -> bool:
+    return config["server"]["host"] in ("127.0.0.1", "localhost", "::1")
 
 
 class JogCommand(BaseModel):
@@ -64,7 +64,7 @@ class DeadmanCommand(BaseModel):
 
 
 class ModeCommand(BaseModel):
-    mode: str = Field(pattern="^(manual|auto)$")
+    mode: str = Field(pattern="^(idle|manual|auto)$")
 
 
 class ConfigCommand(BaseModel):
@@ -93,8 +93,7 @@ def health():
             "buzzer_enabled": config["safety"]["buzzer_enabled"],
             "cpu_temp_c": rt._cpu_temp, "throttled": rt._throttled,
             "throttle_flags_hex": rt._throttle_flags_hex,
-            "hardware_interlocks": {"arm": None, "deadman": None,
-                                    "source": "physical interlock inputs are not exposed by this backend"}}
+            "auth_required": not local_only()}
 
 
 @app.get("/api/telemetry", dependencies=[Depends(require_token)])
@@ -105,7 +104,7 @@ def telemetry():
 @app.get("/video")
 def video(token: str | None = Query(default=None)):
     expected = token_value()
-    if not simulation_loopback() and (not token or not hmac.compare_digest(token, expected)):
+    if not local_only() and (not token or not hmac.compare_digest(token, expected)):
         raise HTTPException(status_code=401, detail="Valid video token required")
     rt = app.state.runtime
     def frames():
@@ -172,9 +171,6 @@ def calibrate():
 
 @app.post("/api/mode", dependencies=[Depends(require_token)])
 def set_mode(command: ModeCommand):
-    if command.mode == "auto" and app.state.runtime.detector.backend == "motion" and \
-       not app.state.runtime.simulation:
-        raise HTTPException(409, "Motion-only detection is restricted to development; use color or ArUco")
     try:
         app.state.runtime.safety.set_mode(command.mode)
     except RuntimeError as exc:
@@ -227,7 +223,7 @@ def get_log(limit: int = 100):
 async def telemetry_socket(websocket: WebSocket):
     expected = token_value()
     supplied = websocket.query_params.get("token", "")
-    if not simulation_loopback() and (not expected or not hmac.compare_digest(supplied, expected)):
+    if not local_only() and (not expected or not hmac.compare_digest(supplied, expected)):
         await websocket.close(code=1008)
         return
     await websocket.accept()

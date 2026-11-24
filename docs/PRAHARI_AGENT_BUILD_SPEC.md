@@ -1,6 +1,11 @@
 # PRAHARI: Agent Build Spec
 
-Vision-guided pan-tilt camera prototype on a Raspberry Pi 5. The optional output is a relay-switched buzzer. Latest EO-C2 direction supersedes the earlier software-switch design: ARM and dead-man must be physical, read-only interlocks with no browser ARM/dead-man endpoints or controls. Current backend and wiring have not implemented or mapped these inputs; until that gap is closed, the dashboard must report them unavailable and inhibit motion.
+Vision-guided pan-tilt camera prototype on a Raspberry Pi 5. Current scope is
+simple OpenCV marker and motion tracking with manual (WASD/on-screen) and AUTO
+camera modes. The optional buzzer relay remains disabled until connected. The
+older interlock/ARM sections below are historical and superseded by the current
+bench workflow: local IDLE/JOG/AUTO mode selection after calibration, with an
+E-STOP and accessible physical motor-power switch.
 
 ---
 

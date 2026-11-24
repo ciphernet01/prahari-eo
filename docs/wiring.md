@@ -1,6 +1,9 @@
-# Wiring guide status
+# Bench-control notes
 
-> **Interlock integration gap:** The current guide below documents the earlier software ARM/dead-man arrangement. The latest EO-C2 requirement is for physical ARM and dead-man switches. This repository does not assign GPIO pins for these switches or read them in the backend. Do not assume the dashboard can enable motion: it will show the inputs as unavailable and inhibit jog/auto. Define, wire, and implement both physical inputs before hardware motion bring-up; do not guess pins.
+The current build uses the local dashboard's IDLE/JOG/AUTO modes; no separate
+ARM or dead-man GPIO switches are part of this bench setup. Keep the physical
+motor-power switch accessible, verify soft limits against the frame, and leave
+the optional buzzer disconnected/disabled until it is wired and checked.
 
 # PRAHARI wiring and Pi bring-up
 
