@@ -42,6 +42,7 @@ control:
   max_tilt_dps: 45
   pan_sign: 1
   tilt_sign: -1
+  error_filter_alpha: 0.35
 server:
   host: 127.0.0.1
   port: 8000

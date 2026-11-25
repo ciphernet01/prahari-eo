@@ -45,6 +45,9 @@ class SafetyController:
         self._deadman_held = False
         self._deadman_last = 0.0
         self.aimer = Aimer(config["control"])
+        # Low-pass filtered image-space error reduces motor chatter from detector jitter.
+        self._filtered_err_x: float | None = None
+        self._filtered_err_y: float | None = None
         self._last_control = time.monotonic()
         self._transition(State.SAFE, "startup complete")
 
@@ -149,11 +152,21 @@ class SafetyController:
                     self.buzzer.off()
                     self.lock_frames = 0
                     self._lock_notified = False
+                    self._filtered_err_x = self._filtered_err_y = None
+                    self.aimer.reset()
                     self._transition(State.TRACKING, "target lost")
                     return
+                alpha = float(config["control"].get("error_filter_alpha", 0.35))
+                alpha = max(0.05, min(1.0, alpha))
+                if self._filtered_err_x is None or self._filtered_err_y is None:
+                    self._filtered_err_x, self._filtered_err_y = self.err_x, self.err_y
+                else:
+                    self._filtered_err_x += alpha * (self.err_x - self._filtered_err_x)
+                    self._filtered_err_y += alpha * (self.err_y - self._filtered_err_y)
+                control_err_x, control_err_y = self._filtered_err_x, self._filtered_err_y
                 self.lock_frames += 1
-                if abs(self.err_x) <= config["safety"]["lock_tolerance_px"] and \
-                   abs(self.err_y) <= config["safety"]["lock_tolerance_px"]:
+                if abs(control_err_x) <= config["safety"]["lock_tolerance_px"] and \
+                   abs(control_err_y) <= config["safety"]["lock_tolerance_px"]:
                     if self.lock_frames >= config["safety"]["lock_frames_required"] and self.deadman_on:
                         self.motion.stop()
                         self._transition(State.LOCKED, "object centred; dashboard dead-man held")
@@ -175,7 +188,7 @@ class SafetyController:
                     self._transition(State.TRACKING, "dashboard dead-man released")
                 dt = min(0.1, max(0.001, now - self._last_control))
                 self._last_control = now
-                pan, tilt = self.aimer.update(self.err_x, self.err_y, dt)
+                pan, tilt = self.aimer.update(control_err_x, control_err_y, dt)
                 self.motion.axes["pan"].set_velocity_dps(pan)
                 self.motion.axes["tilt"].set_velocity_dps(tilt)
 
@@ -264,6 +277,7 @@ class SafetyController:
                 raise RuntimeError("Calibrate both axes before selecting JOG or AUTO")
             self.motion.stop()
             self.aimer.reset()
+            self._filtered_err_x = self._filtered_err_y = None
             self.lock_frames = 0
             self._arm_enabled = True
             self.mode = mode

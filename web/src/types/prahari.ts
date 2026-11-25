@@ -7,7 +7,7 @@ export type CameraStatus = {
 
 export type Health = {
   status: string
-  simulation: boolean
+  simulation?: boolean
   camera: CameraStatus
   state: string
   home_switches_enabled: boolean
@@ -54,7 +54,7 @@ export type Telemetry = {
   fps: number
   cpu_temp_c: number | null
   throttled: boolean
-  simulation: boolean
+  simulation?: boolean
   camera?: CameraStatus
   angular_error_deg?: { pan: number; tilt: number }
   throttle_flags_hex?: string | null

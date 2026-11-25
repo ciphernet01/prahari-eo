@@ -19,7 +19,6 @@ import {
   X,
 } from 'lucide-react'
 import { CameraViewport } from './components/CameraViewport'
-import { JoystickControl } from './components/JoystickControl'
 import { fetchHealth, getStoredToken, storeToken, telemetrySocketUrl, withTokenQuery } from './services/api'
 import { usePrahariApi } from './hooks/usePrahariApi'
 import type { Health, LogRow, Mode, Telemetry, Tuning } from './types/prahari'
@@ -36,13 +35,21 @@ type LinkState =
   | 'E-STOP LATCHED'
   | 'FAULT'
 
+function reportsSimulatedInput(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const payload = value as { simulation?: unknown; camera?: { simulation?: unknown } }
+  return payload.simulation === true || payload.camera?.simulation === true
+}
+
 type Toast = { tone: 'ok' | 'warn' | 'err'; message: string }
 
 const MODE_LABEL: Record<Mode, string> = { idle: 'IDLE', manual: 'MANUAL', auto: 'AUTO' }
+const JOG_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS'])
 
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null)
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null)
+  const [simulatedInputBlocked, setSimulatedInputBlocked] = useState(false)
   const [token, setToken] = useState(() => getStoredToken())
   const [tokenDraft, setTokenDraft] = useState('')
   const [authOpen, setAuthOpen] = useState(false)
@@ -56,6 +63,7 @@ export default function App() {
   const [tab, setTab] = useState<'audit' | 'tuning' | 'plot'>('audit')
   const [toast, setToast] = useState<Toast | null>(null)
   const [confirmZero, setConfirmZero] = useState(false)
+  const [logLoaded, setLogLoaded] = useState(false)
   const [lastTelemetryAt, setLastTelemetryAt] = useState<number | null>(null)
   const [pending, setPending] = useState<Record<string, boolean>>({})
   const [tuneError, setTuneError] = useState('')
@@ -63,15 +71,14 @@ export default function App() {
   const [configLoaded, setConfigLoaded] = useState(false)
 
   const socket = useRef<WebSocket | null>(null)
+  const simulatedInputBlockedRef = useRef(false)
   const pingSent = useRef(0)
   const plot = useRef<HTMLCanvasElement | null>(null)
   const history = useRef<{ t: number; x: number; y: number }[]>([])
   const jogTimer = useRef<number | null>(null)
   const jogDirs = useRef({ pan: 0, tilt: 0 })
-  const lastLog = useRef(0)
+  const jogKeys = useRef(new Set<string>())
   const toastTimer = useRef<number | null>(null)
-
-  const sim = health?.simulation ?? false
 
   const notify = useCallback((message: string, tone: Toast['tone'] = 'warn') => {
     setToast({ message, tone })
@@ -91,6 +98,7 @@ export default function App() {
   }, [])
 
   const loadTune = useCallback(async () => {
+    setConfigLoaded(false)
     try {
       const t = await api.loadConfig()
       setTuning(t)
@@ -100,21 +108,33 @@ export default function App() {
     } catch (e) {
       const msg = String((e as Error).message || e)
       setTuneError(msg)
-      if ((e as Error & { status?: number }).status !== 401) notify(msg, 'err')
+      setConfigLoaded(false)
     }
-  }, [api, notify])
+  }, [api])
 
   const loadLog = useCallback(async () => {
     try {
       const l = await api.loadLog(200)
       setEvents(l.events || [])
+      setLogLoaded(true)
       setLogError('')
     } catch (e) {
       const msg = String((e as Error).message || e)
       setLogError(msg)
-      if ((e as Error & { status?: number }).status !== 401 && !sim) notify(msg, 'err')
     }
-  }, [api, notify, sim])
+  }, [api])
+
+  const backendReady = health !== null
+  useEffect(() => {
+    if (backendReady) void loadTune()
+  }, [backendReady, loadTune])
+
+  useEffect(() => {
+    if (!backendReady || logError) return
+    void loadLog()
+    const id = window.setInterval(() => void loadLog(), 4000)
+    return () => window.clearInterval(id)
+  }, [backendReady, logError, loadLog])
 
   useEffect(() => {
     let alive = true
@@ -123,6 +143,14 @@ export default function App() {
         const h = await fetchHealth()
         if (!alive) return
         setHealth(h)
+        if (reportsSimulatedInput(h)) {
+          simulatedInputBlockedRef.current = true
+          setSimulatedInputBlocked(true)
+          setTelemetry(null)
+        } else {
+          simulatedInputBlockedRef.current = false
+          setSimulatedInputBlocked(false)
+        }
         if (h.auth_required && !getStoredToken()) {
           setLink('TOKEN REQUIRED')
           setAuthOpen(true)
@@ -151,63 +179,69 @@ export default function App() {
       return
     }
     const url = telemetrySocketUrl(token)
-    const ws = new WebSocket(url)
-    socket.current = ws
+    let ws: WebSocket | null = null
     let pingId: number | undefined
-    let logId: number | undefined
+    let reconnectId: number | undefined
+    let closed = false
 
-    ws.onopen = () => {
-      setLink('ONLINE')
-      const ping = () => {
-        if (ws.readyState === WebSocket.OPEN) {
-          pingSent.current = performance.now()
-          ws.send(JSON.stringify({ type: 'ping', ts: pingSent.current }))
+    const connect = () => {
+      ws = new WebSocket(url)
+      socket.current = ws
+      ws.onopen = () => {
+        setLink('ONLINE')
+        const ping = () => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            pingSent.current = performance.now()
+            ws.send(JSON.stringify({ type: 'ping', ts: pingSent.current }))
+          }
+        }
+        ping()
+        pingId = window.setInterval(ping, 1000)
+      }
+      ws.onmessage = (event) => {
+        try {
+          const d = JSON.parse(event.data)
+          if (d.type === 'pong') {
+            setWsLatency(Math.max(0, performance.now() - d.ts))
+            return
+          }
+          const t = (d.type === 'telemetry' && d.data ? d.data : d) as Telemetry
+          if (reportsSimulatedInput(t) || simulatedInputBlockedRef.current) {
+            simulatedInputBlockedRef.current = true
+            setSimulatedInputBlocked(true)
+            setTelemetry(null)
+            return
+          }
+          setTelemetry(t)
+          setLastTelemetryAt(Date.now())
+          const now = Date.now()
+          history.current.push({ t: now, x: Number(t.err_x) || 0, y: Number(t.err_y) || 0 })
+          history.current = history.current.filter((p) => now - p.t <= 10000)
+          if (t.interlocks?.estop) setLink('E-STOP LATCHED')
+          else if (t.throttled || t.fault) setLink('FAULT')
+          else setLink('ONLINE')
+        } catch {
+          // Ignore malformed telemetry frames.
         }
       }
-      ping()
-      pingId = window.setInterval(ping, 1000)
-    }
-    ws.onmessage = (event) => {
-      try {
-        const d = JSON.parse(event.data)
-        if (d.type === 'pong') {
-          setWsLatency(Math.max(0, performance.now() - d.ts))
-          return
-        }
-        const t = (d.type === 'telemetry' && d.data ? d.data : d) as Telemetry
-        setTelemetry(t)
-        setLastTelemetryAt(Date.now())
-        const now = Date.now()
-        history.current.push({ t: now, x: Number(t.err_x) || 0, y: Number(t.err_y) || 0 })
-        history.current = history.current.filter((p) => now - p.t <= 10000)
-        if (t.interlocks?.estop) setLink('E-STOP LATCHED')
-        else if (t.throttled || t.fault) setLink('FAULT')
-        else setLink('ONLINE')
-      } catch {
-        // Ignore malformed telemetry frames.
+      ws.onerror = () => setLink('LINK ERROR')
+      ws.onclose = () => {
+        if (pingId) window.clearInterval(pingId)
+        pingId = undefined
+        setLink((current) => (current === 'E-STOP LATCHED' || current === 'FAULT' ? current : 'DISCONNECTED'))
+        if (!closed) reconnectId = window.setTimeout(connect, 1500)
       }
     }
-    ws.onerror = () => setLink('LINK ERROR')
-    ws.onclose = () => {
-      setLink((current) => (current === 'E-STOP LATCHED' || current === 'FAULT' ? current : 'DISCONNECTED'))
-    }
-
-    void loadTune()
-    void loadLog()
-    logId = window.setInterval(() => {
-      if (Date.now() - lastLog.current > 4000) {
-        lastLog.current = Date.now()
-        void loadLog()
-      }
-    }, 4000)
+    connect()
 
     return () => {
       if (pingId) window.clearInterval(pingId)
-      if (logId) window.clearInterval(logId)
-      ws.close()
+      if (reconnectId) window.clearTimeout(reconnectId)
+      closed = true
+      ws?.close()
       if (socket.current === ws) socket.current = null
     }
-  }, [authRequired, token, sim, loadTune, loadLog])
+  }, [authRequired, token])
 
   useEffect(() => {
     if (token) storeToken(token)
@@ -219,11 +253,13 @@ export default function App() {
     return () => window.clearInterval(id)
   }, [])
   const stale = lastTelemetryAt != null && nowTick - lastTelemetryAt > 2500
+  const cameraAvailable = telemetry?.camera?.available ?? !!health?.camera.available
   const isEStop = !!telemetry?.interlocks.estop
   const underVolt = !!telemetry?.throttled
   const fault = telemetry?.fault
   const axesCalibrated = !!telemetry?.axes.pan.calibrated && !!telemetry?.axes.tilt.calibrated
-  const modeAllowed = !!health && axesCalibrated && !isEStop && !fault
+  const hardwareInputReady = !!health && !simulatedInputBlocked && cameraAvailable
+  const modeAllowed = hardwareInputReady && axesCalibrated && !isEStop && !fault
   const motionAllowed = modeAllowed && telemetry?.state === 'ARMED' && telemetry?.mode === 'manual'
   const locked = telemetry?.state === 'LOCKED'
 
@@ -252,55 +288,68 @@ export default function App() {
     })
   }, [motionAllowed, api, notify])
 
-  const beginJog = useCallback(
-    (pan: number, tilt: number) => {
-      if (!motionAllowed) return
-      jogDirs.current = { pan, tilt }
-      sendJog()
-      if (jogTimer.current) window.clearInterval(jogTimer.current)
-      jogTimer.current = window.setInterval(sendJog, 100)
-    },
-    [motionAllowed, sendJog],
-  )
-
   const stopJog = useCallback(() => {
     if (jogTimer.current) {
       window.clearInterval(jogTimer.current)
       jogTimer.current = null
     }
     const wasMoving = jogDirs.current.pan !== 0 || jogDirs.current.tilt !== 0
+    jogKeys.current.clear()
     jogDirs.current = { pan: 0, tilt: 0 }
     if (wasMoving) void api.jog(0, 0).catch(() => {})
   }, [api])
   stopJogRef.current = stopJog
+
+  const updateJogFromKeys = useCallback(() => {
+    if (!motionAllowed) {
+      stopJog()
+      return
+    }
+
+    const keys = jogKeys.current
+    const left = keys.has('ArrowLeft') || keys.has('KeyA')
+    const right = keys.has('ArrowRight') || keys.has('KeyD')
+    const up = keys.has('ArrowUp') || keys.has('KeyW')
+    const down = keys.has('ArrowDown') || keys.has('KeyS')
+    const pan = Number(right) - Number(left)
+    const tilt = Number(up) - Number(down)
+    if (pan === 0 && tilt === 0) {
+      if (jogTimer.current) {
+        window.clearInterval(jogTimer.current)
+        jogTimer.current = null
+      }
+      const wasMoving = jogDirs.current.pan !== 0 || jogDirs.current.tilt !== 0
+      jogDirs.current = { pan: 0, tilt: 0 }
+      if (wasMoving) void api.jog(0, 0).catch(() => {})
+      return
+    }
+
+    jogDirs.current = { pan, tilt }
+    sendJog()
+    if (!jogTimer.current) jogTimer.current = window.setInterval(sendJog, 100)
+  }, [api, motionAllowed, sendJog, stopJog])
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (isTypingTarget(document.activeElement)) return
       if (e.code === 'Escape' || e.code === 'Space') {
         e.preventDefault()
-        if (!e.repeat) void estopAction()
+        if (!e.repeat) {
+          stopJog()
+          void estopAction()
+        }
         return
       }
-      const map: Record<string, [number, number]> = {
-        ArrowLeft: [-1, 0],
-        a: [-1, 0],
-        ArrowRight: [1, 0],
-        d: [1, 0],
-        ArrowUp: [0, 1],
-        w: [0, 1],
-        ArrowDown: [0, -1],
-        s: [0, -1],
-      }
-      const v = map[e.key] || map[e.key.toLowerCase()]
-      if (v) {
-        e.preventDefault()
-        if (!e.repeat) beginJog(v[0], v[1])
+      if (!JOG_KEYS.has(e.code)) return
+      e.preventDefault()
+      if (!e.repeat) {
+        jogKeys.current.add(e.code)
+        updateJogFromKeys()
       }
     }
     const up = (e: KeyboardEvent) => {
-      const names = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'a', 'd', 'w', 's']
-      if (names.includes(e.key) || names.includes(e.key.toLowerCase())) stopJog()
+      if (!jogKeys.current.delete(e.code)) return
+      updateJogFromKeys()
     }
     window.addEventListener('keydown', key)
     window.addEventListener('keyup', up)
@@ -310,10 +359,14 @@ export default function App() {
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', stopJog)
     }
-  }, [beginJog, stopJog, estopAction])
+  }, [stopJog, updateJogFromKeys, estopAction])
+
+  useEffect(() => {
+    if (!motionAllowed) stopJog()
+  }, [motionAllowed, stopJog])
 
   async function onSetMode(mode: Mode) {
-    if (mode !== 'idle') stopJog()
+    stopJog()
     setBusy(`mode-${mode}`, true)
     try {
       await api.setMode(mode)
@@ -473,10 +526,12 @@ export default function App() {
         ? `FAULT — ${fault}`
         : stale
           ? 'TELEMETRY STALE — last update exceeded 2.5s; display may be out of date.'
-          : ''
+            : simulatedInputBlocked
+              ? 'INPUT REJECTED — this service reports simulated data. Connect the physical camera and hardware service.'
+              : ''
 
   const throttleHex = health?.throttle_flags_hex ?? telemetry?.throttle_flags_hex ?? 'NOT EXPOSED'
-  const piHealth = sim ? 'SIM / N-A' : throttleHex === 'NOT EXPOSED' ? 'UNKNOWN' : underVolt ? 'THROTTLED' : 'NOMINAL'
+  const piHealth = throttleHex === 'NOT EXPOSED' ? 'UNKNOWN' : underVolt ? 'THROTTLED' : 'NOMINAL'
   const connectionTone =
     link === 'ONLINE' ? 'ok' : link === 'E-STOP LATCHED' || link === 'FAULT' || link === 'SERVICE OFFLINE' ? 'bad' : 'warn'
 
@@ -493,9 +548,9 @@ export default function App() {
         </div>
         <div className="status-cluster" aria-label="System status">
           <StatusPill tone={connectionTone} icon={<Wifi size={13} />} label="LINK" value={link} />
-          <StatusPill tone={sim ? 'warn' : 'ok'} label="PLATFORM" value={sim ? 'SIMULATION' : 'HARDWARE'} />
+          <StatusPill tone={simulatedInputBlocked ? 'bad' : !health ? 'warn' : 'ok'} label="PLATFORM" value={simulatedInputBlocked ? 'INPUT REJECTED' : !health ? 'WAITING' : 'HARDWARE'} />
           <StatusPill tone={isEStop ? 'bad' : fault ? 'bad' : locked ? 'ok' : 'warn'} label="STATE" value={telemetry?.state ?? health?.state ?? 'UNKNOWN'} />
-          <StatusPill tone={telemetry?.mode === 'auto' ? 'ok' : 'neutral'} label="MODE" value={(telemetry?.mode ?? 'idle').toUpperCase()} />
+          <StatusPill tone={telemetry?.mode === 'auto' ? 'ok' : 'neutral'} label="MODE" value={telemetry?.mode?.toUpperCase() ?? '--'} />
           <StatusPill tone={underVolt ? 'bad' : 'neutral'} label="PI HEALTH" value={piHealth} detail={`FLAGS ${throttleHex}`} />
           <StatusPill tone="neutral" label="WS RTT" value={wsLatency == null ? '--' : `${wsLatency.toFixed(0)} ms`} />
         </div>
@@ -506,12 +561,12 @@ export default function App() {
       </header>
 
       <div className="health-strip" aria-label="Health summary">
-        <Metric label="Camera" value={health?.camera.available ? 'READY' : 'OFFLINE'} tone={health?.camera.available ? 'ok' : 'warn'} detail={health?.camera.simulation ? 'Sim feed' : 'Live feed'} />
-        <Metric label="Calibration" value={axesCalibrated ? 'CALIBRATED' : 'ZERO REQUIRED'} tone={axesCalibrated ? 'ok' : 'warn'} detail={`PAN ${telemetry?.axes.pan.calibrated ? 'OK' : 'NO'} / TILT ${telemetry?.axes.tilt.calibrated ? 'OK' : 'NO'}`} />
+        <Metric label="Camera" value={simulatedInputBlocked ? 'REJECTED' : !health ? 'WAITING' : cameraAvailable ? 'READY' : 'OFFLINE'} tone={simulatedInputBlocked ? 'bad' : cameraAvailable ? 'ok' : 'warn'} detail={simulatedInputBlocked ? 'Connect physical camera/hardware service' : !health ? 'No service data' : cameraAvailable ? 'Camera input available' : health.camera.error ?? 'No fresh camera frames'} />
+        <Metric label="Calibration" value={!telemetry ? 'WAITING' : axesCalibrated ? 'CALIBRATED' : 'ZERO REQUIRED'} tone={axesCalibrated ? 'ok' : 'warn'} detail={telemetry ? `PAN ${telemetry.axes.pan.calibrated ? 'OK' : 'NO'} / TILT ${telemetry.axes.tilt.calibrated ? 'OK' : 'NO'}` : 'No axis data'} />
         <Metric label="FPS" value={fmt(telemetry?.fps, 1)} tone="neutral" />
         <Metric label="Latency" value={`${fmt(telemetry?.latency_ms, 0)} ms`} tone="neutral" />
         <Metric label="CPU Temp" value={telemetry?.cpu_temp_c == null && health?.cpu_temp_c == null ? '--' : `${fmt(telemetry?.cpu_temp_c ?? health?.cpu_temp_c, 1)} C`} tone={underVolt ? 'bad' : 'neutral'} />
-        <Metric label="Target" value={telemetry?.target ? (locked ? 'LOCKED' : 'ACQUIRED') : 'NO TARGET'} tone={telemetry?.target ? (locked ? 'ok' : 'warn') : 'neutral'} detail={telemetry?.target ? `conf ${fmt(telemetry.target.conf, 2)}` : '—'} />
+        <Metric label="Target" value={!health || !telemetry ? 'WAITING' : !health.camera.available ? 'CAMERA OFFLINE' : telemetry.target ? (locked ? 'LOCKED' : 'ACQUIRED') : 'NO TARGET'} tone={telemetry?.target ? (locked ? 'ok' : 'warn') : 'neutral'} detail={telemetry?.target ? `conf ${fmt(telemetry.target.conf, 2)}` : '--'} />
       </div>
 
       <main id="main-content" className="workspace">
@@ -521,10 +576,9 @@ export default function App() {
           videoUrl={videoUrl}
           banner={banner}
           bannerBad={isEStop || !!fault || underVolt}
-          locked={locked}
-          sim={sim}
           axesCalibrated={axesCalibrated}
           link={link}
+          inputBlocked={simulatedInputBlocked}
         />
 
         <aside className="side-stack">
@@ -547,23 +601,23 @@ export default function App() {
                   })}
                 </div>
                 <p className="help-text">
-                  {motionAllowed ? 'Manual jog active. Hold controls to move; release to stop.' : modeAllowed ? 'Select MANUAL for jog or AUTO for tracking.' : 'Calibrate both axes and clear faults/E-STOP before motion modes.'}
+                  {!health ? 'Waiting for the hardware service.' : !telemetry ? 'Waiting for live axis telemetry.' : motionAllowed ? 'Manual jog active. Hold a movement key to move; release to stop.' : modeAllowed ? 'Select MANUAL for jog or AUTO for tracking.' : 'Calibrate both axes and clear faults/E-STOP before motion modes.'}
                 </p>
               </div>
 
               <div className="field">
-                <div className="field-label-row"><div className="field-label">Joystick control</div><div className="muted-small">DRAG / WASD / ARROWS</div></div>
-                <JoystickControl
-                  disabled={!motionAllowed}
-                  onMove={(pan, tilt) => {
-                    jogDirs.current = { pan, tilt }
-                    sendJog()
-                    if (jogTimer.current) window.clearInterval(jogTimer.current)
-                    jogTimer.current = window.setInterval(sendJog, 100)
-                  }}
-                  onEnd={stopJog}
-                />
-                <p className="help-text">Drag joystick to move pan/tilt. Release to stop. Keyboard jog still works; commands refresh every 100ms and backend jog safety timeout remains active.</p>
+                <div className="field-label-row"><div className="field-label">Keyboard controls</div><div className="muted-small">WASD / ARROWS</div></div>
+                <div className={`key-control-display ${motionAllowed ? '' : 'is-disabled'}`} role="img" aria-label="Hold W or up to tilt up, S or down to tilt down, A or left to pan left, and D or right to pan right">
+                  <div className="key-control-cluster" aria-hidden="true">
+                    <kbd className="key-up">W</kbd>
+                    <kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+                  </div>
+                  <div className="key-control-cluster arrow-keys" aria-hidden="true">
+                    <kbd className="key-up">↑</kbd>
+                    <kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd>
+                  </div>
+                </div>
+                <p className="help-text">Hold W/↑ or S/↓ to tilt; hold A/← or D/→ to pan. Release to stop. Directions combine while keys are held; commands refresh every 100ms and backend jog safety timeout remains active.</p>
               </div>
 
               <div className="field action-grid">
@@ -575,32 +629,33 @@ export default function App() {
                   {pending.home ? <LoaderCircle size={14} className="spin" /> : <Home size={14} />} HOME AXES
                 </button>
               </div>
-              {!health?.home_switches_enabled && <p className="help-text">Homing unavailable: `home_switches_enabled` is false in backend config.</p>}
+              {health && !health.home_switches_enabled && <p className="help-text">Homing unavailable: `home_switches_enabled` is false in backend config.</p>}
               <div className="kbd-note"><Keyboard size={13} /> Space/Esc = E-STOP. Keyboard jog disabled while typing in inputs.</div>
             </div>
           </section>
 
           <section className="panel" aria-labelledby="telemetry-title">
             <PanelHead kicker="LIVE TELEMETRY" title="System Health" id="telemetry-title">
-              <span className={`state-chip ${stale ? 'warn' : 'ok'}`}>{stale ? 'STALE' : 'LIVE'}</span>
+              <span className={`state-chip ${stale || !telemetry ? 'warn' : 'ok'}`}>
+                {!telemetry ? 'WAITING' : stale ? 'STALE' : 'LIVE'}
+              </span>
             </PanelHead>
             <div className="panel-body telemetry-grid">
-              <TelemetryRow label="Pan" value={`${fmt(telemetry?.axes.pan.deg, 2)}°`} detail={`vel ${fmt(telemetry?.axes.pan.velocity_dps, 1)} dps`} />
-              <TelemetryRow label="Tilt" value={`${fmt(telemetry?.axes.tilt.deg, 2)}°`} detail={`vel ${fmt(telemetry?.axes.tilt.velocity_dps, 1)} dps`} />
+              <TelemetryRow label="Pan estimate" value={telemetry?.axes.pan.calibrated ? `${fmt(telemetry.axes.pan.deg, 2)}°` : '--'} detail={`cmd ${fmt(telemetry?.axes.pan.velocity_dps, 1)} dps`} />
+              <TelemetryRow label="Tilt estimate" value={telemetry?.axes.tilt.calibrated ? `${fmt(telemetry.axes.tilt.deg, 2)}°` : '--'} detail={`cmd ${fmt(telemetry?.axes.tilt.velocity_dps, 1)} dps`} />
               <TelemetryRow label="Angular err" value={`${fmt(telemetry?.angular_error_deg?.pan, 2)}° / ${fmt(telemetry?.angular_error_deg?.tilt, 2)}°`} />
-              <TelemetryRow label="Deadman" value={telemetry?.interlocks.deadman ? 'HELD' : 'OFF'} />
-              <TelemetryRow label="Buzzer cue" value={health?.buzzer_enabled ? 'ENABLED' : 'DISABLED'} detail="Backend-configured" />
-              <TelemetryRow label="CPU / Throttle" value={`${fmt(telemetry?.cpu_temp_c ?? health?.cpu_temp_c, 1)} C`} detail={piHealth} tone={underVolt ? 'bad' : undefined} />
+              <TelemetryRow label="Buzzer cue" value={!health ? '--' : health.buzzer_enabled ? 'ENABLED' : 'DISABLED'} detail={health ? 'Backend-configured' : undefined} />
+              <TelemetryRow label="CPU / Throttle" value={telemetry?.cpu_temp_c == null && health?.cpu_temp_c == null ? '--' : `${fmt(telemetry?.cpu_temp_c ?? health?.cpu_temp_c, 1)} C`} detail={piHealth} tone={underVolt ? 'bad' : undefined} />
             </div>
           </section>
         </aside>
 
         <section className="panel config-panel" aria-labelledby="config-title">
           <PanelHead kicker="DETECTOR / CONTROL" title="Configuration" id="config-title">
-            <div className="panel-meta"><span>{configLoaded ? 'Loaded from backend' : 'Loading config...'}</span></div>
+            <div className="panel-meta"><span>{configLoaded ? 'Loaded from backend' : tuneError ? 'Unavailable' : 'Waiting for backend'}</span></div>
           </PanelHead>
           <div className="panel-body">
-            <div className="config-grid">
+            {configLoaded ? <div className="config-grid">
               <label className="field">Detector
                 <div className="select-wrap">
                   <select value={draft.backend} onChange={(e) => setDraft({ ...draft, backend: e.target.value })} aria-label="Detector backend">
@@ -618,18 +673,19 @@ export default function App() {
               <NumberField label="PID Kp" min={0} max={2} step={0.01} value={draft.control.kp} onChange={(v) => setDraft({ ...draft, control: { ...draft.control, kp: v } })} />
               <NumberField label="PID Ki" min={0} max={1} step={0.01} value={draft.control.ki} onChange={(v) => setDraft({ ...draft, control: { ...draft.control, ki: v } })} />
               <NumberField label="PID Kd" min={0} max={1} step={0.01} value={draft.control.kd} onChange={(v) => setDraft({ ...draft, control: { ...draft.control, kd: v } })} />
-            </div>
+            </div> : <div className="empty-state">{tuneError || 'Waiting for live configuration from the service.'}</div>}
             {tuneError && <div className="inline-error" role="status"><AlertTriangle size={14} /> {tuneError}</div>}
             <div className="config-actions">
-              <button className="btn btn-secondary" onClick={() => { setDraft(clone(tuning)); setTuneError('') }} disabled={!!pending.config}><RotateCcw size={14} /> REVERT DRAFT</button>
-              <button className="btn btn-primary" onClick={() => void applyConfig()} disabled={!!pending.config}>{pending.config ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />} APPLY CONFIG</button>
+              {tuneError && <button className="btn btn-secondary" onClick={() => void loadTune()} disabled={!!pending.config}><RefreshCw size={14} /> RETRY</button>}
+              <button className="btn btn-secondary" onClick={() => { setDraft(clone(tuning)); setTuneError('') }} disabled={!configLoaded || !!pending.config}><RotateCcw size={14} /> REVERT DRAFT</button>
+              <button className="btn btn-primary" onClick={() => void applyConfig()} disabled={!configLoaded || !!pending.config}>{pending.config ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />} APPLY CONFIG</button>
             </div>
           </div>
         </section>
 
         <section className="panel log-panel" aria-labelledby="log-title">
           <PanelHead kicker="AUDIT / TELEMETRY" title="Events & Diagnostics" id="log-title">
-            <div className="panel-meta"><span>{events.length} events</span><span className={logError ? 'tone-warn' : 'tone-ok'}>{logError ? 'Log error' : 'Log synced'}</span></div>
+            <div className="panel-meta"><span>{logLoaded ? `${events.length} events` : 'Waiting for events'}</span><span className={logError ? 'tone-warn' : logLoaded ? 'tone-ok' : ''}>{logError ? 'Log error' : logLoaded ? 'Log synced' : 'Waiting'}</span></div>
           </PanelHead>
           <div className="tabs" role="tablist" aria-label="Diagnostics tabs">
             <button role="tab" aria-selected={tab === 'audit'} className={tab === 'audit' ? 'active' : ''} onClick={() => setTab('audit')}><TerminalSquare size={14} /> EVENT AUDIT</button>
@@ -645,6 +701,7 @@ export default function App() {
                       <button key={f} className={severity === f ? 'chosen' : ''} onClick={() => setSeverity(f)}>{f}</button>
                     ))}
                   </div>
+                  {logError && <button className="btn btn-secondary btn-small" onClick={() => void loadLog()}><RefreshCw size={13} /> RETRY LOG</button>}
                   <button className="btn btn-secondary btn-small" onClick={copyDiagnostics}><ClipboardCopy size={13} /> COPY DIAGNOSTICS</button>
                 </div>
                 {logError && <div className="inline-error"><AlertTriangle size={14} /> {logError}</div>}
@@ -656,14 +713,14 @@ export default function App() {
                       <strong>{row.event.replaceAll('_', ' ').toUpperCase()}</strong>
                       <span className="event-detail">{Object.entries(row).filter(([k]) => !['time', 'event'].includes(k)).map(([k, v]) => `${k}=${String(v)}`).join(' · ')}</span>
                     </div>
-                  )) : <div className="empty-state"><Database size={15} /> No audit events returned by service.</div>}
+                  )) : <div className="empty-state"><Database size={15} /> {logLoaded ? 'No audit events returned by service.' : 'Waiting for live audit data.'}</div>}
                 </div>
               </div>
             )}
             {tab === 'tuning' && (
               <div className="tuning-pane">
                 <p className="help-text">Values load from `/api/config` and save through `PUT /api/config` using the existing contract. Color fields apply to color backend; PID applies to tracking control.</p>
-                <div className="config-grid compact">
+                {configLoaded ? <div className="config-grid compact">
                   <NumberField label="Hue min" min={0} max={179} value={draft.color.hue_min} onChange={(v) => setDraft({ ...draft, color: { ...draft.color, hue_min: v } })} />
                   <NumberField label="Hue max" min={0} max={179} value={draft.color.hue_max} onChange={(v) => setDraft({ ...draft, color: { ...draft.color, hue_max: v } })} />
                   <NumberField label="Sat min" min={0} max={255} value={draft.color.saturation_min} onChange={(v) => setDraft({ ...draft, color: { ...draft.color, saturation_min: v } })} />
@@ -674,8 +731,12 @@ export default function App() {
                   <label className="field">Backend
                     <div className="select-wrap"><select value={draft.backend} onChange={(e) => setDraft({ ...draft, backend: e.target.value })}><option value="color">COLOR</option><option value="aruco">ARUCO</option><option value="motion">MOTION</option></select><ChevronDown size={14} /></div>
                   </label>
+                </div> : <div className="empty-state">{tuneError || 'Waiting for live configuration from the service.'}</div>}
+                <div className="config-actions">
+                  {tuneError && <button className="btn btn-secondary" onClick={() => void loadTune()} disabled={!!pending.config}><RefreshCw size={14} /> RETRY</button>}
+                  <button className="btn btn-secondary" onClick={() => setDraft(clone(tuning))} disabled={!configLoaded || !!pending.config}><RefreshCw size={14} /> REVERT</button>
+                  <button className="btn btn-primary" onClick={() => void applyConfig()} disabled={!configLoaded || !!pending.config}>{pending.config ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />} APPLY</button>
                 </div>
-                <div className="config-actions"><button className="btn btn-secondary" onClick={() => setDraft(clone(tuning))}><RefreshCw size={14} /> REVERT</button><button className="btn btn-primary" onClick={() => void applyConfig()} disabled={!!pending.config}>{pending.config ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />} APPLY</button></div>
               </div>
             )}
             {tab === 'plot' && (

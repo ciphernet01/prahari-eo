@@ -4,8 +4,9 @@ PRAHARI is a Raspberry Pi 5 pan/tilt camera prototype for tracking a designated
 colour or ArUco marker. It uses the Waveshare Stepper Motor HAT (B), two NEMA 17
 motors, OpenCV, a local FastAPI service, and a browser dashboard. An optional relay output is reserved for a 5V buzzer and is disabled by default.
 The simple local workflow is IDLE, JOG, or AUTO; selecting JOG/AUTO after
-calibration enables camera motion. Manual movement uses WASD, arrow keys, or the
-on-screen pad. No projectile, laser, or person-detection model is included.
+calibration enables camera motion. Manual movement uses WASD or the arrow keys;
+hold a direction to jog and release to stop. No projectile,
+laser, or person-detection model is included.
 
 This repository can be developed on Windows and copied to the Pi. The Pi is the
 hardware host for the finished system. Simulation is a development mode only.
@@ -100,6 +101,21 @@ the runtime reports non-zero flags as a fault.
    stop and disable motor movement.
 5. Test target loss, the E-STOP, camera disconnect, and the physical motor-power
    cut before leaving a bench setup unattended.
+
+### Terminal WASD jog (Raspberry Pi)
+
+With the PRAHARI service already running on the Pi, use a local terminal:
+
+```bash
+cd ~/prahari-eo
+python3 scripts/jog_terminal.py
+```
+
+The client refuses motion in simulation, with an unavailable camera, or while
+the health endpoint reports throttle/undervoltage flags. If the axes are not
+calibrated, center them and type `YES` when prompted to set the current zero.
+Hold W/S for tilt and A/D for pan; press Q or Ctrl-C to stop and return to IDLE.
+The backend's jog timeout remains the fallback if the terminal disconnects.
 
 The E-STOP is latched; restarting the service clears it after the cause has been
 checked. The separate physical power cut is required because software cannot
