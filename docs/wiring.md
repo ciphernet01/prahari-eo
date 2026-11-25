@@ -98,10 +98,11 @@ Do not set these to `dh`; high enables the tested drivers.
 
 1. Finish the frame, mount physical stops, and test that it moves freely by
    hand while driver power is off.
-2. Start with `PRAHARI_SIM=1` to verify the dashboard and API. Dry-run uses a
-   synthetic red marker and does not claim any GPIO.
-3. With the frame clear and 12 V switch accessible, set `PRAHARI_SIM=0`. Keep
-   dashboard ARM off. Jog is rejected until both axes are calibrated.
+2. Simulation is opt-in with `PRAHARI_SIM=1`; it uses a synthetic red marker
+   and does not claim GPIO. Do not use its generated input for hardware motion.
+3. Hardware mode is the default (`PRAHARI_SIM=0`). With the frame clear and
+   12 V switch accessible, keep dashboard ARM off. Jog is rejected until both
+   axes are calibrated.
 4. Center the camera manually, then use **Set current position as zero**. The
    system's software limits are relative to that point. If home switches are
    fitted and `homing_switches_enabled: true` is set in `config.yaml`, home at

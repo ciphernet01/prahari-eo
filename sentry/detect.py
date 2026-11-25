@@ -77,15 +77,3 @@ class Detector:
         _, mask = cv2.threshold(mask, 200, 255, cv2.THRESH_BINARY)
         mask = cv2.dilate(mask, None, iterations=2)
         return self._largest(mask, c["min_area"])
-
-
-def overlay(frame: np.ndarray, target: Target | None) -> np.ndarray:
-    shown = frame.copy()
-    h, w = shown.shape[:2]
-    cv2.drawMarker(shown, (w // 2, h // 2), (255, 255, 255), cv2.MARKER_CROSS, 16, 1)
-    if target:
-        x, y = int(target.x), int(target.y)
-        cv2.rectangle(shown, (int(x-target.w/2), int(y-target.h/2)),
-                      (int(x+target.w/2), int(y+target.h/2)), (0, 220, 0), 2)
-        cv2.circle(shown, (x, y), 4, (0, 220, 0), -1)
-    return shown

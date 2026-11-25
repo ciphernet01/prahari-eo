@@ -15,7 +15,7 @@ CONFIG_PATH = Path(os.getenv("PRAHARI_CONFIG", ROOT / "config.yaml"))
 def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as stream:
         config = yaml.safe_load(stream) or {}
-    config.setdefault("runtime", {})["simulation"] = os.getenv("PRAHARI_SIM", "1") == "1"
+    config.setdefault("runtime", {})["simulation"] = os.getenv("PRAHARI_SIM", "0") == "1"
     server = config.setdefault("server", {})
     server["host"] = os.getenv("PRAHARI_HOST", server.get("host", "127.0.0.1"))
     server["port"] = int(os.getenv("PRAHARI_PORT", server.get("port", 8000)))

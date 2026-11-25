@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import {
   calibrateAxes,
   estop,
@@ -25,18 +25,18 @@ export function usePrahariApi(token: string, onAuthError: () => void) {
     [onAuthError],
   )
 
-  return {
-    loadConfig: useCallback(() => wrap(() => fetchConfig(token)), [token, wrap]),
-    saveConfig: useCallback((payload: Tuning) => wrap(() => saveConfig(token, payload)), [token, wrap]),
-    loadLog: useCallback((limit = 200) => wrap(() => fetchLog(token, limit)), [token, wrap]),
-    setMode: useCallback((mode: Mode) => wrap(() => setMode(token, mode)), [token, wrap]),
-    jog: useCallback((pan: number, tilt: number) => wrap(() => sendJog(token, pan, tilt)), [token, wrap]),
-    home: useCallback(() => wrap(() => homeAxes(token)), [token, wrap]),
-    calibrate: useCallback(() => wrap(() => calibrateAxes(token)), [token, wrap]),
-    estop: useCallback(async () => {
+  return useMemo(() => ({
+    loadConfig: () => wrap(() => fetchConfig(token)),
+    saveConfig: (payload: Tuning) => wrap(() => saveConfig(token, payload)),
+    loadLog: (limit = 200) => wrap(() => fetchLog(token, limit)),
+    setMode: (mode: Mode) => wrap(() => setMode(token, mode)),
+    jog: (pan: number, tilt: number) => wrap(() => sendJog(token, pan, tilt)),
+    home: () => wrap(() => homeAxes(token)),
+    calibrate: () => wrap(() => calibrateAxes(token)),
+    estop: async () => {
       const res = await estop()
       if (!res.ok) throw new Error('E-STOP request failed')
       return res
-    }, []),
-  }
+    },
+  }), [token, wrap])
 }

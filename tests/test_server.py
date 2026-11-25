@@ -1,9 +1,13 @@
 from fastapi.testclient import TestClient
 
+from sentry.config import config
 from sentry.server import app, token_value
 
 
-def test_simulated_app_startup_and_authenticated_dashboard_api():
+def test_simulated_app_startup_and_authenticated_dashboard_api(monkeypatch):
+    monkeypatch.setitem(config["runtime"], "simulation", True)
+    monkeypatch.setitem(config["server"], "host", "0.0.0.0")
+    monkeypatch.setenv("PRAHARI_TOKEN", "test-token")
     with TestClient(app) as client:
         assert client.get("/").status_code == 200
         health = client.get("/api/health").json()

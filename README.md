@@ -34,6 +34,12 @@ For frontend development, keep FastAPI running in another terminal, then run `cd
 
 ## Windows development
 
+Real hardware mode is the default (`PRAHARI_SIM=0`). It expects the camera and
+GPIO hardware to be present; a missing camera is reported as unavailable and
+missing GPIO drivers fail startup rather than silently substituting simulated
+data. For UI or logic development without hardware, simulation must be
+explicitly enabled:
+
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -42,11 +48,10 @@ $env:PRAHARI_SIM = "1"
 py -m sentry.launch
 ```
 
-Open `http://127.0.0.1:8000`. By default, simulation uses a moving red
-marker and opens no GPIO. To use a local webcam while keeping the motors in
-simulation, set `$env:PRAHARI_SIM = "1"` and `$env:PRAHARI_CAMERA_SIM = "0"`
-before launch. The dashboard/API is for integration development and does not
-replace physical bring-up and tuning on the Pi.
+Open `http://127.0.0.1:8000`. Simulation uses a generated moving marker and
+does not open GPIO. To use a local webcam while keeping motors simulated, set
+`$env:PRAHARI_CAMERA_SIM = "0"` as well. Never enable simulation for a real
+hardware run.
 
 ## Raspberry Pi 5 deployment
 
@@ -63,14 +68,14 @@ source ~/prahari-env/bin/activate
 python -m pip install 'fastapi>=0.115,<1' 'uvicorn[standard]>=0.30,<1'
 ```
 
-Run **dry-run first**:
+For software-only checks, simulation is opt-in:
 
 ```bash
 PRAHARI_SIM=1 PRAHARI_CAMERA_SIM=0 ~/prahari-env/bin/python -m sentry.launch
 ```
 
 For actual hardware, after the frame and travel stops are built and checked,
-run with `PRAHARI_SIM=0`. The dashboard and API need no token while bound to
+run with the default hardware mode (`PRAHARI_SIM=0`). The dashboard and API need no token while bound to
 loopback (`127.0.0.1`). To use a second device on trusted Wi-Fi, set a strong
 `PRAHARI_TOKEN` and `PRAHARI_HOST=0.0.0.0`; never
 forward the service port to the public internet. For a service install, run

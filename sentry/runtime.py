@@ -10,7 +10,7 @@ import cv2
 from .capture import Capture
 from .config import config
 from .control import pixel_error_to_degrees
-from .detect import Detector, overlay
+from .detect import Detector
 from .fire import Buzzer
 from .logger import EventLog
 from .motion import MotionSystem
@@ -32,7 +32,7 @@ class Runtime:
         except Exception:
             self.buzzer.close()
             raise
-        camera_sim = os.getenv("PRAHARI_CAMERA_SIM", "1" if self.simulation else "0") == "1"
+        camera_sim = self.simulation and os.getenv("PRAHARI_CAMERA_SIM", "1") == "1"
         self.camera = Capture(camera_sim)
         self.detector = Detector()
         self._thread = None
@@ -67,9 +67,8 @@ class Runtime:
                         "tilt": pixel_error_to_degrees(err_y, config["camera"]["fov_v_deg"], h),
                     }
                     self.safety.set_target(target, err_x, err_y)
-                    drawn = overlay(frame, target)
                     with self._display_lock:
-                        self._display = drawn
+                        self._display = frame
                     self._last_processed = stamp
                     elapsed = max(1e-6, time.monotonic() - started)
                     self._fps = 0.9 * self._fps + 0.1 / elapsed if self._fps else 1 / elapsed
