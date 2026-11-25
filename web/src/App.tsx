@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { CameraViewport } from './components/CameraViewport'
 import { JoystickControl } from './components/JoystickControl'
-import { fetchHealth, getStoredToken, storeToken, telemetrySocketUrl, withTokenQuery } from './services/api'
+import { fetchHealth, fetchTelemetry, getStoredToken, storeToken, telemetrySocketUrl, withTokenQuery } from './services/api'
 import { usePrahariApi } from './hooks/usePrahariApi'
 import type { Health, LogRow, Mode, Telemetry, Tuning } from './types/prahari'
 import { clone, emptyTune, fmt, isTypingTarget } from './utils'
@@ -74,6 +74,7 @@ export default function App() {
   const socket = useRef<WebSocket | null>(null)
   const simulatedInputBlockedRef = useRef(false)
   const pingSent = useRef(0)
+  const lastTelemetryAtRef = useRef(0)
   const plot = useRef<HTMLCanvasElement | null>(null)
   const history = useRef<{ t: number; x: number; y: number }[]>([])
   const jogTimer = useRef<number | null>(null)
@@ -214,7 +215,9 @@ export default function App() {
             return
           }
           setTelemetry(t)
-          setLastTelemetryAt(Date.now())
+          const receivedAt = Date.now()
+          lastTelemetryAtRef.current = receivedAt
+          setLastTelemetryAt(receivedAt)
           const now = Date.now()
           history.current.push({ t: now, x: Number(t.err_x) || 0, y: Number(t.err_y) || 0 })
           history.current = history.current.filter((p) => now - p.t <= 10000)
@@ -243,6 +246,45 @@ export default function App() {
       if (socket.current === ws) socket.current = null
     }
   }, [authRequired, token])
+
+  // Keep the console usable if a reverse proxy, browser, or network blocks WS.
+  // The API is local, so this fallback only polls while WS telemetry is stale.
+  useEffect(() => {
+    if (!health || (authRequired && !token)) return
+    let active = true
+    const pollTelemetry = async () => {
+      if (lastTelemetryAtRef.current && Date.now() - lastTelemetryAtRef.current < 2000) return
+      try {
+        const t = await fetchTelemetry(token)
+        if (!active || Date.now() - lastTelemetryAtRef.current < 1000) return
+        if (reportsSimulatedInput(t) || simulatedInputBlockedRef.current) {
+          simulatedInputBlockedRef.current = true
+          setSimulatedInputBlocked(true)
+          setTelemetry(null)
+          return
+        }
+        const receivedAt = Date.now()
+        lastTelemetryAtRef.current = receivedAt
+        setTelemetry(t)
+        setLastTelemetryAt(receivedAt)
+        const now = receivedAt
+        history.current.push({ t: now, x: Number(t.err_x) || 0, y: Number(t.err_y) || 0 })
+        history.current = history.current.filter((p) => now - p.t <= 10000)
+        if (t.interlocks?.estop) setLink('E-STOP LATCHED')
+        else if (t.throttled || t.fault) setLink('FAULT')
+        else setLink('ONLINE')
+      } catch (error) {
+        const status = (error as Error & { status?: number }).status
+        if (status === 401 && authRequired) openAuth()
+      }
+    }
+    void pollTelemetry()
+    const timer = window.setInterval(() => void pollTelemetry(), 1000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [authRequired, health, openAuth, token])
 
   useEffect(() => {
     if (token) storeToken(token)
