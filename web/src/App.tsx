@@ -77,8 +77,6 @@ export default function App() {
   const history = useRef<{ t: number; x: number; y: number }[]>([])
   const jogTimer = useRef<number | null>(null)
   const jogDirs = useRef({ pan: 0, tilt: 0 })
-  const deadmanTimer = useRef<number | null>(null)
-  const deadmanRequested = useRef(false)
   const toastTimer = useRef<number | null>(null)
 
   const notify = useCallback((message: string, tone: Toast['tone'] = 'warn') => {
@@ -263,47 +261,10 @@ export default function App() {
   const modeAllowed = hardwareInputReady && axesCalibrated && !isEStop && !fault
   const motionAllowed = modeAllowed && telemetry?.state === 'ARMED' && telemetry?.mode === 'manual'
   const locked = telemetry?.state === 'LOCKED'
-  const deadmanAllowed = hardwareInputReady && !stale && link === 'ONLINE' &&
-    telemetry?.mode === 'auto' && telemetry.interlocks.arm_enabled && !isEStop && !fault
-
-  const stopDeadman = useCallback(() => {
-    if (deadmanTimer.current) {
-      window.clearInterval(deadmanTimer.current)
-      deadmanTimer.current = null
-    }
-    if (!deadmanRequested.current) return
-    deadmanRequested.current = false
-    void api.setDeadman(false).catch((e) => {
-      notify(`Could not release dead-man input: ${String((e as Error).message || e)}`, 'err')
-    })
-  }, [api, notify])
-
-  const startDeadman = useCallback(() => {
-    if (!deadmanAllowed || deadmanTimer.current) return
-    deadmanRequested.current = true
-    const heartbeat = () => {
-      void api.setDeadman(true).catch((e) => {
-        notify(`Dead-man heartbeat failed: ${String((e as Error).message || e)}`, 'err')
-        stopDeadman()
-      })
-    }
-    heartbeat()
-    deadmanTimer.current = window.setInterval(heartbeat, 100)
-  }, [api, deadmanAllowed, notify, stopDeadman])
-
-  useEffect(() => {
-    if (!deadmanAllowed) stopDeadman()
-  }, [deadmanAllowed, stopDeadman])
-
-  useEffect(() => () => {
-    if (deadmanTimer.current) window.clearInterval(deadmanTimer.current)
-    if (deadmanRequested.current) void api.setDeadman(false).catch(() => {})
-  }, [api])
 
   const videoUrl = useMemo(() => withTokenQuery('/video', token), [token])
 
   const estopAction = useCallback(async () => {
-    stopDeadman()
     setBusy('estop', true)
     try {
       await api.estop()
@@ -314,7 +275,7 @@ export default function App() {
     } finally {
       setBusy('estop', false)
     }
-  }, [api, notify, setBusy, stopDeadman])
+  }, [api, notify, setBusy])
 
   const stopJogRef = useRef<() => void>(() => {})
   const sendJog = useCallback(() => {
@@ -387,7 +348,6 @@ export default function App() {
   }, [beginJog, stopJog, estopAction])
 
   async function onSetMode(mode: Mode) {
-    stopDeadman()
     if (mode !== 'idle') stopJog()
     setBusy(`mode-${mode}`, true)
     try {
@@ -666,43 +626,8 @@ export default function App() {
               <TelemetryRow label="Pan estimate" value={telemetry?.axes.pan.calibrated ? `${fmt(telemetry.axes.pan.deg, 2)}°` : '--'} detail={`cmd ${fmt(telemetry?.axes.pan.velocity_dps, 1)} dps`} />
               <TelemetryRow label="Tilt estimate" value={telemetry?.axes.tilt.calibrated ? `${fmt(telemetry.axes.tilt.deg, 2)}°` : '--'} detail={`cmd ${fmt(telemetry?.axes.tilt.velocity_dps, 1)} dps`} />
               <TelemetryRow label="Angular err" value={`${fmt(telemetry?.angular_error_deg?.pan, 2)}° / ${fmt(telemetry?.angular_error_deg?.tilt, 2)}°`} />
-              <TelemetryRow label="Deadman" value={!telemetry ? '--' : telemetry.interlocks.deadman ? 'HELD' : 'OFF'} />
               <TelemetryRow label="Buzzer cue" value={!health ? '--' : health.buzzer_enabled ? 'ENABLED' : 'DISABLED'} detail={health ? 'Backend-configured' : undefined} />
               <TelemetryRow label="CPU / Throttle" value={telemetry?.cpu_temp_c == null && health?.cpu_temp_c == null ? '--' : `${fmt(telemetry?.cpu_temp_c ?? health?.cpu_temp_c, 1)} C`} detail={piHealth} tone={underVolt ? 'bad' : undefined} />
-              <div className="deadman-control">
-                <button
-                  className={`btn ${telemetry?.interlocks.deadman ? 'btn-warn' : 'btn-secondary'}`}
-                  type="button"
-                  disabled={!deadmanAllowed}
-                  aria-pressed={!!telemetry?.interlocks.deadman}
-                  onPointerDown={(event) => {
-                    event.preventDefault()
-                    event.currentTarget.setPointerCapture(event.pointerId)
-                    startDeadman()
-                  }}
-                  onPointerUp={stopDeadman}
-                  onPointerCancel={stopDeadman}
-                  onLostPointerCapture={stopDeadman}
-                  onKeyDown={(event) => {
-                    if (event.code === 'Space') {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      startDeadman()
-                    }
-                  }}
-                  onKeyUp={(event) => {
-                    if (event.code === 'Space') {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      stopDeadman()
-                    }
-                  }}
-                  onBlur={stopDeadman}
-                >
-                  {telemetry?.interlocks.deadman ? 'RELEASE TO DISENGAGE' : 'HOLD FOR TARGET LOCK'}
-                </button>
-                <p className="help-text">Available in AUTO. The input expires automatically when released or disconnected.</p>
-              </div>
             </div>
           </section>
         </aside>

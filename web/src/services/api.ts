@@ -94,10 +94,6 @@ export async function setMode(token: string, mode: Mode): Promise<{ mode: string
   return apiRequest<{ mode: string }>('/api/mode', token, 'POST', { mode })
 }
 
-export async function setDeadman(token: string, held: boolean): Promise<{ deadman_held: boolean; expires_ms: number }> {
-  return apiRequest<{ deadman_held: boolean; expires_ms: number }>('/api/deadman', token, 'POST', { held })
-}
-
 export async function sendJog(token: string, pan_dps: number, tilt_dps: number): Promise<unknown> {
   return apiRequest('/api/jog', token, 'POST', { pan_dps, tilt_dps })
 }

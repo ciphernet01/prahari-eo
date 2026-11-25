@@ -7,7 +7,6 @@ import {
   homeAxes,
   saveConfig,
   sendJog,
-  setDeadman,
   setMode,
 } from '../services/api'
 import type { Mode, Tuning } from '../types/prahari'
@@ -31,7 +30,6 @@ export function usePrahariApi(token: string, onAuthError: () => void) {
     saveConfig: (payload: Tuning) => wrap(() => saveConfig(token, payload)),
     loadLog: (limit = 200) => wrap(() => fetchLog(token, limit)),
     setMode: (mode: Mode) => wrap(() => setMode(token, mode)),
-    setDeadman: (held: boolean) => wrap(() => setDeadman(token, held)),
     jog: (pan: number, tilt: number) => wrap(() => sendJog(token, pan, tilt)),
     home: () => wrap(() => homeAxes(token)),
     calibrate: () => wrap(() => calibrateAxes(token)),
