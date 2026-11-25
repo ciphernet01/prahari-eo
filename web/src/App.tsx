@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react'
 import { CameraViewport } from './components/CameraViewport'
+import { JoystickControl } from './components/JoystickControl'
 import { fetchHealth, getStoredToken, storeToken, telemetrySocketUrl, withTokenQuery } from './services/api'
 import { usePrahariApi } from './hooks/usePrahariApi'
 import type { Health, LogRow, Mode, Telemetry, Tuning } from './types/prahari'
@@ -601,12 +602,22 @@ export default function App() {
                   })}
                 </div>
                 <p className="help-text">
-                  {!health ? 'Waiting for the hardware service.' : !telemetry ? 'Waiting for live axis telemetry.' : motionAllowed ? 'Manual jog active. Hold a movement key to move; release to stop.' : modeAllowed ? 'Select MANUAL for jog or AUTO for tracking.' : 'Calibrate both axes and clear faults/E-STOP before motion modes.'}
+                  {!health ? 'Waiting for the hardware service.' : !telemetry ? 'Waiting for live axis telemetry.' : motionAllowed ? 'Manual jog active. Hold controls to move; release to stop.' : modeAllowed ? 'Select MANUAL for jog or AUTO for tracking.' : 'Calibrate both axes and clear faults/E-STOP before motion modes.'}
                 </p>
               </div>
 
               <div className="field">
-                <div className="field-label-row"><div className="field-label">Keyboard controls</div><div className="muted-small">WASD / ARROWS</div></div>
+                <div className="field-label-row"><div className="field-label">Joystick / keyboard controls</div><div className="muted-small">DRAG / WASD / ARROWS</div></div>
+                <JoystickControl
+                  disabled={!motionAllowed}
+                  onMove={(pan, tilt) => {
+                    jogDirs.current = { pan, tilt }
+                    sendJog()
+                    if (jogTimer.current) window.clearInterval(jogTimer.current)
+                    jogTimer.current = window.setInterval(sendJog, 100)
+                  }}
+                  onEnd={stopJog}
+                />
                 <div className={`key-control-display ${motionAllowed ? '' : 'is-disabled'}`} role="img" aria-label="Hold W or up to tilt up, S or down to tilt down, A or left to pan left, and D or right to pan right">
                   <div className="key-control-cluster" aria-hidden="true">
                     <kbd className="key-up">W</kbd>

@@ -205,6 +205,21 @@ button:disabled, input:disabled, select:disabled { cursor: not-allowed; opacity:
 .key-control-cluster kbd { display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,.16); border-radius: 5px; background: linear-gradient(180deg, #202c38, #111923); box-shadow: 0 2px 0 rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06); color: #c4d2dc; font: 600 12px/1 var(--mono); }
 .key-control-cluster .key-up { grid-column: 2; }
 .key-control-cluster kbd:not(.key-up) { grid-row: 2; }
+.joystick-wrap { display: flex; justify-content: center; padding: 6px 0 2px; }
+.joystick-base { position: relative; width: 184px; height: 184px; border-radius: 50%; border: 1px solid rgba(255,255,255,.12); background: radial-gradient(circle at 35% 30%, rgba(70,84,98,.28), rgba(14,20,28,.5) 62%, rgba(10,14,20,.62)); box-shadow: inset 0 1px 0 rgba(255,255,255,.05), inset 0 -18px 30px rgba(0,0,0,.22), 0 10px 24px rgba(0,0,0,.2); touch-action: none; user-select: none; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.joystick-base.is-disabled { opacity: .45; }
+.joystick-base.is-engaged { border-color: rgba(89,211,227,.35); box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 1px rgba(89,211,227,.08), 0 10px 24px rgba(0,0,0,.2); }
+.joystick-ring { position: absolute; inset: 18px; border-radius: 50%; border: 1px solid rgba(255,255,255,.08); }
+.joystick-cross span { position: absolute; background: rgba(255,255,255,.07); }
+.joystick-cross span:first-child { top: 22px; bottom: 22px; left: 50%; width: 1px; transform: translateX(-50%); }
+.joystick-cross span:last-child { left: 22px; right: 22px; top: 50%; height: 1px; transform: translateY(-50%); }
+.joystick-knob { position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; border-radius: 50%; border: 1px solid rgba(255,255,255,.14); background: radial-gradient(circle at 35% 30%, rgba(125,145,162,.42), rgba(35,47,58,.72) 68%); box-shadow: 0 8px 18px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.08); transition: box-shadow .12s; }
+.joystick-base.is-engaged .joystick-knob { border-color: rgba(89,211,227,.35); box-shadow: 0 8px 18px rgba(0,0,0,.28), 0 0 0 4px rgba(89,211,227,.07), inset 0 1px 0 rgba(255,255,255,.08); }
+.joystick-dir { position: absolute; font: 9px/1 var(--mono); color: #8394a1; letter-spacing: .06em; }
+.joystick-n { top: 8px; left: 50%; transform: translateX(-50%); }
+.joystick-s { bottom: 8px; left: 50%; transform: translateX(-50%); }
+.joystick-w { left: 8px; top: 50%; transform: translateY(-50%); }
+.joystick-e { right: 8px; top: 50%; transform: translateY(-50%); }
 .kbd-note { display: flex; align-items: center; gap: 8px; color: var(--dim); font: 11px/1.4 var(--mono); padding-top: 12px; border-top: 1px solid var(--line); }
 
 .telemetry-grid { display: grid; gap: 0; padding: 0; }
@@ -302,7 +317,6 @@ button:disabled, input:disabled, select:disabled { cursor: not-allowed; opacity:
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
-
 /* PRAHARI professional console refinement: reduce decorative glass and improve hierarchy. */
 :root {
   --bg: #080d12;
