@@ -9,6 +9,7 @@ type Props = {
   bannerBad: boolean
   axesCalibrated: boolean
   link: string
+  inputBlocked: boolean
 }
 
 export function CameraViewport({
@@ -19,9 +20,10 @@ export function CameraViewport({
   bannerBad,
   axesCalibrated,
   link,
+  inputBlocked,
 }: Props) {
   const cameraAvailable = telemetry?.camera?.available ?? !!health?.camera.available
-  const disconnected = !cameraAvailable || link === 'SERVICE OFFLINE' || link === 'DISCONNECTED' || link === 'LINK ERROR'
+  const disconnected = inputBlocked || !cameraAvailable || link === 'SERVICE OFFLINE' || link === 'DISCONNECTED' || link === 'LINK ERROR'
   const reconnecting = link === 'CONNECTING'
   const live = cameraAvailable && !disconnected && !reconnecting
   const target = telemetry?.target ?? null
@@ -46,13 +48,17 @@ export function CameraViewport({
         </div>
 
         <div className="eo-viewport">
-          <img
-            src={videoUrl}
-            alt="Live camera feed"
-            className="eo-video"
-            onError={(e) => { e.currentTarget.style.opacity = '0' }}
-            onLoad={(e) => { e.currentTarget.style.opacity = '1' }}
-          />
+          {inputBlocked ? (
+            <div className="eo-feed-unavailable" role="status">PHYSICAL CAMERA INPUT REQUIRED</div>
+          ) : (
+            <img
+              src={videoUrl}
+              alt="Live camera feed"
+              className="eo-video"
+              onError={(e) => { e.currentTarget.style.opacity = '0' }}
+              onLoad={(e) => { e.currentTarget.style.opacity = '1' }}
+            />
+          )}
 
           <div className="eo-hud-grid" aria-hidden="true" />
           <div className="eo-reticle" aria-hidden="true">

@@ -36,6 +36,12 @@ type LinkState =
   | 'E-STOP LATCHED'
   | 'FAULT'
 
+function reportsSimulatedInput(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const payload = value as { simulation?: unknown; camera?: { simulation?: unknown } }
+  return payload.simulation === true || payload.camera?.simulation === true
+}
+
 type Toast = { tone: 'ok' | 'warn' | 'err'; message: string }
 
 const MODE_LABEL: Record<Mode, string> = { idle: 'IDLE', manual: 'MANUAL', auto: 'AUTO' }
@@ -43,6 +49,7 @@ const MODE_LABEL: Record<Mode, string> = { idle: 'IDLE', manual: 'MANUAL', auto:
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null)
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null)
+  const [simulatedInputBlocked, setSimulatedInputBlocked] = useState(false)
   const [token, setToken] = useState(() => getStoredToken())
   const [tokenDraft, setTokenDraft] = useState('')
   const [authOpen, setAuthOpen] = useState(false)
@@ -64,6 +71,7 @@ export default function App() {
   const [configLoaded, setConfigLoaded] = useState(false)
 
   const socket = useRef<WebSocket | null>(null)
+  const simulatedInputBlockedRef = useRef(false)
   const pingSent = useRef(0)
   const plot = useRef<HTMLCanvasElement | null>(null)
   const history = useRef<{ t: number; x: number; y: number }[]>([])
@@ -136,6 +144,14 @@ export default function App() {
         const h = await fetchHealth()
         if (!alive) return
         setHealth(h)
+        if (reportsSimulatedInput(h)) {
+          simulatedInputBlockedRef.current = true
+          setSimulatedInputBlocked(true)
+          setTelemetry(null)
+        } else {
+          simulatedInputBlockedRef.current = false
+          setSimulatedInputBlocked(false)
+        }
         if (h.auth_required && !getStoredToken()) {
           setLink('TOKEN REQUIRED')
           setAuthOpen(true)
@@ -191,6 +207,12 @@ export default function App() {
             return
           }
           const t = (d.type === 'telemetry' && d.data ? d.data : d) as Telemetry
+          if (reportsSimulatedInput(t) || simulatedInputBlockedRef.current) {
+            simulatedInputBlockedRef.current = true
+            setSimulatedInputBlocked(true)
+            setTelemetry(null)
+            return
+          }
           setTelemetry(t)
           setLastTelemetryAt(Date.now())
           const now = Date.now()
@@ -232,14 +254,16 @@ export default function App() {
     return () => window.clearInterval(id)
   }, [])
   const stale = lastTelemetryAt != null && nowTick - lastTelemetryAt > 2500
+  const cameraAvailable = telemetry?.camera?.available ?? !!health?.camera.available
   const isEStop = !!telemetry?.interlocks.estop
   const underVolt = !!telemetry?.throttled
   const fault = telemetry?.fault
   const axesCalibrated = !!telemetry?.axes.pan.calibrated && !!telemetry?.axes.tilt.calibrated
-  const modeAllowed = !!health && axesCalibrated && !isEStop && !fault
+  const hardwareInputReady = !!health && !simulatedInputBlocked && cameraAvailable
+  const modeAllowed = hardwareInputReady && axesCalibrated && !isEStop && !fault
   const motionAllowed = modeAllowed && telemetry?.state === 'ARMED' && telemetry?.mode === 'manual'
   const locked = telemetry?.state === 'LOCKED'
-  const deadmanAllowed = !!health && !stale && link === 'ONLINE' &&
+  const deadmanAllowed = hardwareInputReady && !stale && link === 'ONLINE' &&
     telemetry?.mode === 'auto' && telemetry.interlocks.arm_enabled && !isEStop && !fault
 
   const stopDeadman = useCallback(() => {
@@ -524,7 +548,9 @@ export default function App() {
         ? `FAULT — ${fault}`
         : stale
           ? 'TELEMETRY STALE — last update exceeded 2.5s; display may be out of date.'
-          : ''
+            : simulatedInputBlocked
+              ? 'INPUT REJECTED — this service reports simulated data. Connect the physical camera and hardware service.'
+              : ''
 
   const throttleHex = health?.throttle_flags_hex ?? telemetry?.throttle_flags_hex ?? 'NOT EXPOSED'
   const piHealth = throttleHex === 'NOT EXPOSED' ? 'UNKNOWN' : underVolt ? 'THROTTLED' : 'NOMINAL'
@@ -544,7 +570,7 @@ export default function App() {
         </div>
         <div className="status-cluster" aria-label="System status">
           <StatusPill tone={connectionTone} icon={<Wifi size={13} />} label="LINK" value={link} />
-          <StatusPill tone={!health ? 'warn' : 'ok'} label="PLATFORM" value={!health ? 'WAITING' : 'HARDWARE'} />
+          <StatusPill tone={simulatedInputBlocked ? 'bad' : !health ? 'warn' : 'ok'} label="PLATFORM" value={simulatedInputBlocked ? 'INPUT REJECTED' : !health ? 'WAITING' : 'HARDWARE'} />
           <StatusPill tone={isEStop ? 'bad' : fault ? 'bad' : locked ? 'ok' : 'warn'} label="STATE" value={telemetry?.state ?? health?.state ?? 'UNKNOWN'} />
           <StatusPill tone={telemetry?.mode === 'auto' ? 'ok' : 'neutral'} label="MODE" value={telemetry?.mode?.toUpperCase() ?? '--'} />
           <StatusPill tone={underVolt ? 'bad' : 'neutral'} label="PI HEALTH" value={piHealth} detail={`FLAGS ${throttleHex}`} />
@@ -557,7 +583,7 @@ export default function App() {
       </header>
 
       <div className="health-strip" aria-label="Health summary">
-        <Metric label="Camera" value={!health ? 'WAITING' : health.camera.available ? 'READY' : 'OFFLINE'} tone={health?.camera.available ? 'ok' : 'warn'} detail={!health ? 'No service data' : health.camera.available ? 'Real camera input' : health.camera.error ?? 'No fresh camera frames'} />
+        <Metric label="Camera" value={simulatedInputBlocked ? 'REJECTED' : !health ? 'WAITING' : cameraAvailable ? 'READY' : 'OFFLINE'} tone={simulatedInputBlocked ? 'bad' : cameraAvailable ? 'ok' : 'warn'} detail={simulatedInputBlocked ? 'Connect physical camera/hardware service' : !health ? 'No service data' : cameraAvailable ? 'Camera input available' : health.camera.error ?? 'No fresh camera frames'} />
         <Metric label="Calibration" value={!telemetry ? 'WAITING' : axesCalibrated ? 'CALIBRATED' : 'ZERO REQUIRED'} tone={axesCalibrated ? 'ok' : 'warn'} detail={telemetry ? `PAN ${telemetry.axes.pan.calibrated ? 'OK' : 'NO'} / TILT ${telemetry.axes.tilt.calibrated ? 'OK' : 'NO'}` : 'No axis data'} />
         <Metric label="FPS" value={fmt(telemetry?.fps, 1)} tone="neutral" />
         <Metric label="Latency" value={`${fmt(telemetry?.latency_ms, 0)} ms`} tone="neutral" />
@@ -574,6 +600,7 @@ export default function App() {
           bannerBad={isEStop || !!fault || underVolt}
           axesCalibrated={axesCalibrated}
           link={link}
+          inputBlocked={simulatedInputBlocked}
         />
 
         <aside className="side-stack">
