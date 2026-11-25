@@ -1,0 +1,4 @@
+# Install OpenCV, NumPy, gpiozero, and lgpio from Raspberry Pi OS apt packages.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+PyYAML>=6,<7
