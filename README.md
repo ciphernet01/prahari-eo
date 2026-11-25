@@ -4,9 +4,9 @@ PRAHARI is a Raspberry Pi 5 pan/tilt camera prototype for tracking a designated
 colour or ArUco marker. It uses the Waveshare Stepper Motor HAT (B), two NEMA 17
 motors, OpenCV, a local FastAPI service, and a browser dashboard. An optional relay output is reserved for a 5V buzzer and is disabled by default.
 The simple local workflow is IDLE, JOG, or AUTO; selecting JOG/AUTO after
-calibration enables camera motion. Manual movement uses WASD or the arrow keys;
-hold a direction to jog and release to stop. No projectile,
-laser, or person-detection model is included.
+calibration enables camera motion. Manual movement uses WASD, arrow keys, or the
+on-screen pad; hold a direction to jog and release to stop. No projectile, laser,
+or person-detection model is included.
 
 This repository can be developed on Windows and copied to the Pi. The Pi is the
 hardware host for the finished system. Simulation is a development mode only.
