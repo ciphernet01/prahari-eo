@@ -126,6 +126,19 @@ def estop():
     return {"state": "SAFE", "latched": True}
 
 
+@app.post("/api/buzzer/cue", dependencies=[Depends(require_token)])
+def buzzer_cue():
+    """Request one configured short buzzer cue; there is no dashboard control."""
+    rt = app.state.runtime
+    if not config["safety"]["buzzer_enabled"]:
+        return {"accepted": False, "reason": "buzzer disabled in config"}
+    accepted = rt.buzzer.pulse(config["safety"]["buzzer_pulse_ms"],
+                               config["safety"]["buzzer_cooldown_s"])
+    reason = None if accepted else "buzzer cooldown active"
+    rt.log.write("terminal_buzzer_cue", accepted=accepted, reason=reason)
+    return {"accepted": accepted, "reason": reason}
+
+
 @app.post("/api/arm", dependencies=[Depends(require_token)])
 def set_arm(command: ToggleCommand):
     try:

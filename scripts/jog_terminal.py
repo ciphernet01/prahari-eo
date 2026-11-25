@@ -79,29 +79,39 @@ def main() -> int:
         voltage = health.get("pi_5v_v")
         if voltage is not None and voltage < 4.8:
             raise RuntimeError(f"Pi 5 V input is low ({voltage:.3f} V); motion locked out.")
-        if not health.get("camera", {}).get("available"):
-            detail = health.get("camera", {}).get("error") or "no fresh frames received"
-            raise RuntimeError(f"Camera is not available ({detail}); check /dev/video0 and retry.")
         state = api.call("/api/telemetry")
-        if state.get("fault") or state.get("state") == "FAULT":
-            raise RuntimeError(f"Backend fault is active: {state.get('fault') or 'inspect dashboard'}")
-        if state.get("interlocks", {}).get("estop"):
-            raise RuntimeError("E-STOP is latched. Resolve the cause and restart the service to clear it.")
+        camera_ready = bool(health.get("camera", {}).get("available"))
+        motion_ready = camera_ready and not state.get("fault") and state.get("state") != "FAULT" \
+            and not state.get("interlocks", {}).get("estop")
         axes = state.get("axes", {})
-        if not (axes.get("pan", {}).get("calibrated") and
-                axes.get("tilt", {}).get("calibrated")):
+        calibrated = axes.get("pan", {}).get("calibrated") and axes.get("tilt", {}).get("calibrated")
+        if motion_ready and not calibrated:
             print("Both axes need a zero reference. Center them mechanically first.")
             if input("Set the current position as zero? Type YES to confirm: ").strip() != "YES":
-                print("Cancelled; no motion command sent.")
-                return 0
-            api.call("/api/calibrate", {})
-        api.call("/api/mode", {"mode": "manual"})
+                motion_ready = False
+            else:
+                api.call("/api/calibrate", {})
+                calibrated = True
+        if motion_ready and calibrated:
+            try:
+                api.call("/api/mode", {"mode": "manual"})
+            except RuntimeError as exc:
+                motion_ready = False
+                print(f"Motor jog unavailable: {exc}")
+        else:
+            motion_ready = False
     except (RuntimeError, OSError, ValueError) as exc:
         print(f"PRAHARI jog unavailable: {exc}", file=sys.stderr)
         return 1
 
-    print("PRAHARI terminal jog | W/S = tilt | A/D = pan | Q or Ctrl-C = stop/exit")
-    print(f"Speed: {args.speed:g} deg/s. Tap for a nudge; hold to repeat. Release to stop.")
+    print("PRAHARI terminal | W/S = tilt | A/D = pan | Enter = buzzer cue | Q or Ctrl-C = exit")
+    print(f"Speed: {args.speed:g} deg/s. Tap to nudge; hold to repeat. Release to stop.")
+    if not motion_ready:
+        detail = health.get("camera", {}).get("error") or state.get("fault") or \
+            ("axes need zero calibration" if not calibrated else "motion interlock not ready")
+        print(f"Motor jog unavailable ({detail}); Enter buzzer cue remains available.")
+    if not health.get("buzzer_enabled"):
+        print("Buzzer cue is disabled in config.yaml (safety.buzzer_enabled: false).")
     print("Keep the mechanism clear and the physical motor power switch reachable.")
 
     fd = sys.stdin.fileno()
@@ -112,6 +122,8 @@ def main() -> int:
     quitting = False
 
     def command() -> tuple[float, float]:
+        if not motion_ready:
+            return 0.0, 0.0
         now = time.monotonic()
         active = {key for key, stamp in last_key.items() if now - stamp <= KEY_HOLD_S}
         pan = args.speed * (int("d" in active) - int("a" in active))
@@ -126,6 +138,16 @@ def main() -> int:
                 key = os.read(fd, 1).decode(errors="ignore").lower()
                 if key in ("q", "\x03"):
                     quitting = True
+                    continue
+                if key in ("\r", "\n"):
+                    try:
+                        result = api.call("/api/buzzer/cue", {})
+                        if result.get("accepted"):
+                            print("\nBuzzer cue sent.")
+                        else:
+                            print(f"\nBuzzer did not beep: {result.get('reason', 'not accepted')}.")
+                    except RuntimeError as exc:
+                        print(f"\nBuzzer cue failed: {exc}")
                     continue
                 if key in KEYS:
                     last_key[key] = time.monotonic()

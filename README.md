@@ -131,6 +131,7 @@ a strong `PRAHARI_TOKEN` before binding it to a trusted LAN.
 - `GET /api/health`, `GET /api/telemetry`, `WS /ws/telemetry`
 - `GET /video` (MJPEG)
 - `POST /api/jog` (hold-to-move velocity; expires after 300 ms)
+- `POST /api/buzzer/cue` (terminal buzzer cue; configured pulse and cooldown)
 - `POST /api/arm` and `POST /api/deadman` (legacy routes; not called by dashboard)
 - `POST /api/home`, `POST /api/calibrate`, `POST /api/mode`
 - `POST /api/estop` (always accepted; no token needed)
@@ -138,9 +139,11 @@ a strong `PRAHARI_TOKEN` before binding it to a trusted LAN.
 - `GET /api/log`
 
 The dashboard has no ARM, dead-man, or direct buzzer buttons. JOG/AUTO mode
-selection enables motion after zero calibration; IDLE stops it. Buzzer output
-remains disabled unless explicitly configured. Detector choices are `color`,
-`aruco`, and `motion` (simple frame-difference motion detection).
+selection enables motion after zero calibration; IDLE stops it. The terminal
+jog client uses Enter for a short buzzer cue through the relay; the cue remains
+disabled until `safety.buzzer_enabled` is enabled after wiring and polarity are
+verified. Detector choices are `color`, `aruco`, and `motion` (simple
+frame-difference motion detection).
 
 ## Software checks
 

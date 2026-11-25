@@ -54,19 +54,31 @@ change, reboot and confirm `vcgencmd get_throttled` returns `0x0` and
 `vcgencmd pmic_read_adc EXT5V_V` is above 4.8 V before enabling movement.
 [Raspberry Pi power guidance](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html)
 
-## 4. Dashboard controls and optional home switches
+## 4. Software controls, home switches, and optional buzzer
 
-ARM and dead-man are dashboard controls in this version. Do not add GPIO5/6
-switch wiring. ARM starts disarmed and authorizes software motion after axis
-calibration. The dashboard dead-man only gates the optional buzzer indication;
-it does not control motor movement. Both controls require the configured API
-token.
+Use IDLE/JOG/AUTO in the dashboard; there are no ARM or dead-man GPIO switches
+in this build. The dashboard has no buzzer button. The terminal jog client uses
+Enter to request one configured short buzzer cue from the backend.
 
 | Function | BCM GPIO | Wiring / behavior |
 |---|---:|---|
 | Pan home switch | 23 | Normally open to GND; closed at negative pan travel end |
 | Tilt home switch | 25 | Normally open to GND; closed at negative tilt travel end |
-| Optional buzzer relay input | 26 | Leave disconnected and software-disabled until relay polarity is verified |
+| Optional buzzer relay input | 26 | BCM 26 is physical header pin 37; connect to relay IN1 only after checking that the module input accepts 3.3 V logic |
+
+For a single-channel use on a 4-channel relay board, use channel 1 contacts:
+external 5 V buzzer supply `+` to `COM1`, `NO1` to active buzzer `+`, and
+buzzer `−` to that supply's `−`. `NO1` keeps the buzzer off when the relay is
+idle. The relay input side uses Pi GPIO 26, Pi GND, and the relay board's rated
+logic supply as marked on its silkscreen/manual. Do not guess the board's
+`VCC`/`JD-VCC` jumper wiring, input polarity, or 3.3 V compatibility; confirm
+the exact module first. Never connect relay contacts to GPIO or feed the
+buzzer's external 5 V into a Pi GPIO pin.
+
+Keep `safety.buzzer_enabled: false` until wiring and relay polarity are
+verified. Then enable it and set `safety.relay_active_low` to match the
+module's input. `safety.buzzer_pulse_ms` controls beep length and
+`safety.buzzer_cooldown_s` sets the minimum interval between cues.
 
 Home switches are optional; without them, center the axes manually and use the
 dashboard's **Set current position as zero** action after each reboot. Fit
@@ -114,8 +126,8 @@ Do not set these to `dh`; high enables the tested drivers.
 5. Select JOG and use short, slow manual jogs. Verify each arrow,
    release timeout, soft limit, and physical stop separately before attaching
    any moving accessories.
-6. Keep buzzer output disabled until its relay model, active polarity, and
-   series ARM wiring are verified.
+6. Keep buzzer output disabled until the relay board pinout and input polarity
+   are confirmed, then test one short cue with the buzzer mechanism clear.
 
 The app currently assumes direct drive. Edit `config.yaml` angle limits and
 axis direction after measuring the completed frame. Homing, camera field of
