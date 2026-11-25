@@ -101,6 +101,21 @@ the runtime reports non-zero flags as a fault.
 5. Test target loss, the E-STOP, camera disconnect, and the physical motor-power
    cut before leaving a bench setup unattended.
 
+### Terminal WASD jog (Raspberry Pi)
+
+With the PRAHARI service already running on the Pi, use a local terminal:
+
+```bash
+cd ~/prahari-eo
+python3 scripts/jog_terminal.py
+```
+
+The client refuses motion in simulation, with an unavailable camera, or while
+the health endpoint reports throttle/undervoltage flags. If the axes are not
+calibrated, center them and type `YES` when prompted to set the current zero.
+Hold W/S for tilt and A/D for pan; press Q or Ctrl-C to stop and return to IDLE.
+The backend's jog timeout remains the fallback if the terminal disconnects.
+
 The E-STOP is latched; restarting the service clears it after the cause has been
 checked. The separate physical power cut is required because software cannot
 stop a driver if the Pi loses power. Keep the service on loopback unless you set
