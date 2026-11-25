@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import threading
 import time
@@ -19,26 +18,22 @@ from .safety import SafetyController
 
 class Runtime:
     def __init__(self):
-        self.simulation = config["runtime"]["simulation"]
         self.log = EventLog(config["safety"]["event_log"])
         # Outputs are made safe before camera or web service initialization.
         self.buzzer = Buzzer(config["safety"]["relay_pin"],
                              config["safety"]["relay_active_low"],
-                             config["safety"]["buzzer_enabled"], self.simulation)
+                             config["safety"]["buzzer_enabled"])
         try:
-            self.motion = MotionSystem(config["motors"], self.simulation)
-            self.safety = SafetyController(self.motion, self.buzzer, self.simulation,
+            self.motion = MotionSystem(config["motors"])
+            self.safety = SafetyController(self.motion, self.buzzer,
                                            config["camera"]["stale_ms"], self.log)
         except Exception:
             self.buzzer.close()
             raise
-        camera_sim = self.simulation and os.getenv("PRAHARI_CAMERA_SIM", "1") == "1"
-        self.camera = Capture(camera_sim)
+        self.camera = Capture()
         self.detector = Detector()
         self._thread = None
         self._stop = threading.Event()
-        self._display_lock = threading.Lock()
-        self._display = None
         self._last_processed = 0.0
         self._fps = 0.0
         self._latency_ms = 0.0
@@ -67,8 +62,6 @@ class Runtime:
                         "tilt": pixel_error_to_degrees(err_y, config["camera"]["fov_v_deg"], h),
                     }
                     self.safety.set_target(target, err_x, err_y)
-                    with self._display_lock:
-                        self._display = frame
                     self._last_processed = stamp
                     elapsed = max(1e-6, time.monotonic() - started)
                     self._fps = 0.9 * self._fps + 0.1 / elapsed if self._fps else 1 / elapsed
@@ -102,11 +95,8 @@ class Runtime:
             self._throttle_flags_hex = None
 
     def jpeg(self) -> bytes | None:
-        with self._display_lock:
-            frame = None if self._display is None else self._display.copy()
-        if frame is None:
-            frame, _ = self.camera.latest()
-        if frame is None:
+        frame, stamp = self.camera.latest()
+        if frame is None or (time.monotonic() - stamp) * 1000 > config["camera"]["stale_ms"]:
             return None
         ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         return jpeg.tobytes() if ok else None
@@ -116,8 +106,7 @@ class Runtime:
                 "angular_error_deg": self._angular_error,
                 "fps": round(self._fps, 1), "latency_ms": round(self._latency_ms, 1),
                 "cpu_temp_c": self._cpu_temp, "throttled": self._throttled,
-                "throttle_flags_hex": self._throttle_flags_hex,
-                "simulation": self.simulation}
+                "throttle_flags_hex": self._throttle_flags_hex}
 
     def close(self) -> None:
         self._stop.set()

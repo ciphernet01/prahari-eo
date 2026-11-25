@@ -216,6 +216,9 @@ button:disabled, input:disabled, select:disabled { cursor: not-allowed; opacity:
 .kbd-note { display: flex; align-items: center; gap: 8px; color: var(--dim); font: 11px/1.4 var(--mono); padding-top: 12px; border-top: 1px solid var(--line); }
 
 .telemetry-grid { display: grid; gap: 0; padding: 0; }
+.deadman-control { padding: 12px 14px; }
+.deadman-control .btn { width: 100%; }
+.deadman-control .help-text { margin-top: 8px; }
 .telemetry-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .telemetry-row:last-child { border-bottom: 0; }
 .telemetry-row > div { text-align: right; display: flex; flex-direction: column; gap: 2px; }

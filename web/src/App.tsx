@@ -69,9 +69,9 @@ export default function App() {
   const history = useRef<{ t: number; x: number; y: number }[]>([])
   const jogTimer = useRef<number | null>(null)
   const jogDirs = useRef({ pan: 0, tilt: 0 })
+  const deadmanTimer = useRef<number | null>(null)
+  const deadmanRequested = useRef(false)
   const toastTimer = useRef<number | null>(null)
-
-  const sim = health?.simulation ?? false
 
   const notify = useCallback((message: string, tone: Toast['tone'] = 'warn') => {
     setToast({ message, tone })
@@ -239,10 +239,47 @@ export default function App() {
   const modeAllowed = !!health && axesCalibrated && !isEStop && !fault
   const motionAllowed = modeAllowed && telemetry?.state === 'ARMED' && telemetry?.mode === 'manual'
   const locked = telemetry?.state === 'LOCKED'
+  const deadmanAllowed = !!health && !stale && link === 'ONLINE' &&
+    telemetry?.mode === 'auto' && telemetry.interlocks.arm_enabled && !isEStop && !fault
+
+  const stopDeadman = useCallback(() => {
+    if (deadmanTimer.current) {
+      window.clearInterval(deadmanTimer.current)
+      deadmanTimer.current = null
+    }
+    if (!deadmanRequested.current) return
+    deadmanRequested.current = false
+    void api.setDeadman(false).catch((e) => {
+      notify(`Could not release dead-man input: ${String((e as Error).message || e)}`, 'err')
+    })
+  }, [api, notify])
+
+  const startDeadman = useCallback(() => {
+    if (!deadmanAllowed || deadmanTimer.current) return
+    deadmanRequested.current = true
+    const heartbeat = () => {
+      void api.setDeadman(true).catch((e) => {
+        notify(`Dead-man heartbeat failed: ${String((e as Error).message || e)}`, 'err')
+        stopDeadman()
+      })
+    }
+    heartbeat()
+    deadmanTimer.current = window.setInterval(heartbeat, 100)
+  }, [api, deadmanAllowed, notify, stopDeadman])
+
+  useEffect(() => {
+    if (!deadmanAllowed) stopDeadman()
+  }, [deadmanAllowed, stopDeadman])
+
+  useEffect(() => () => {
+    if (deadmanTimer.current) window.clearInterval(deadmanTimer.current)
+    if (deadmanRequested.current) void api.setDeadman(false).catch(() => {})
+  }, [api])
 
   const videoUrl = useMemo(() => withTokenQuery('/video', token), [token])
 
   const estopAction = useCallback(async () => {
+    stopDeadman()
     setBusy('estop', true)
     try {
       await api.estop()
@@ -253,7 +290,7 @@ export default function App() {
     } finally {
       setBusy('estop', false)
     }
-  }, [api, notify, setBusy])
+  }, [api, notify, setBusy, stopDeadman])
 
   const stopJogRef = useRef<() => void>(() => {})
   const sendJog = useCallback(() => {
@@ -326,6 +363,7 @@ export default function App() {
   }, [beginJog, stopJog, estopAction])
 
   async function onSetMode(mode: Mode) {
+    stopDeadman()
     if (mode !== 'idle') stopJog()
     setBusy(`mode-${mode}`, true)
     try {
@@ -489,7 +527,7 @@ export default function App() {
           : ''
 
   const throttleHex = health?.throttle_flags_hex ?? telemetry?.throttle_flags_hex ?? 'NOT EXPOSED'
-  const piHealth = sim ? 'SIM / N-A' : throttleHex === 'NOT EXPOSED' ? 'UNKNOWN' : underVolt ? 'THROTTLED' : 'NOMINAL'
+  const piHealth = throttleHex === 'NOT EXPOSED' ? 'UNKNOWN' : underVolt ? 'THROTTLED' : 'NOMINAL'
   const connectionTone =
     link === 'ONLINE' ? 'ok' : link === 'E-STOP LATCHED' || link === 'FAULT' || link === 'SERVICE OFFLINE' ? 'bad' : 'warn'
 
@@ -506,7 +544,7 @@ export default function App() {
         </div>
         <div className="status-cluster" aria-label="System status">
           <StatusPill tone={connectionTone} icon={<Wifi size={13} />} label="LINK" value={link} />
-          <StatusPill tone={!health || sim ? 'warn' : 'ok'} label="PLATFORM" value={!health ? 'WAITING' : sim ? 'SIMULATION' : 'HARDWARE'} />
+          <StatusPill tone={!health ? 'warn' : 'ok'} label="PLATFORM" value={!health ? 'WAITING' : 'HARDWARE'} />
           <StatusPill tone={isEStop ? 'bad' : fault ? 'bad' : locked ? 'ok' : 'warn'} label="STATE" value={telemetry?.state ?? health?.state ?? 'UNKNOWN'} />
           <StatusPill tone={telemetry?.mode === 'auto' ? 'ok' : 'neutral'} label="MODE" value={telemetry?.mode?.toUpperCase() ?? '--'} />
           <StatusPill tone={underVolt ? 'bad' : 'neutral'} label="PI HEALTH" value={piHealth} detail={`FLAGS ${throttleHex}`} />
@@ -519,7 +557,7 @@ export default function App() {
       </header>
 
       <div className="health-strip" aria-label="Health summary">
-        <Metric label="Camera" value={!health ? 'WAITING' : health.camera.available ? 'READY' : 'OFFLINE'} tone={health?.camera.available ? 'ok' : 'warn'} detail={!health ? 'No service data' : health.camera.simulation ? 'Simulated input' : health.camera.available ? 'Real camera input' : health.camera.error ?? 'No fresh camera frames'} />
+        <Metric label="Camera" value={!health ? 'WAITING' : health.camera.available ? 'READY' : 'OFFLINE'} tone={health?.camera.available ? 'ok' : 'warn'} detail={!health ? 'No service data' : health.camera.available ? 'Real camera input' : health.camera.error ?? 'No fresh camera frames'} />
         <Metric label="Calibration" value={!telemetry ? 'WAITING' : axesCalibrated ? 'CALIBRATED' : 'ZERO REQUIRED'} tone={axesCalibrated ? 'ok' : 'warn'} detail={telemetry ? `PAN ${telemetry.axes.pan.calibrated ? 'OK' : 'NO'} / TILT ${telemetry.axes.tilt.calibrated ? 'OK' : 'NO'}` : 'No axis data'} />
         <Metric label="FPS" value={fmt(telemetry?.fps, 1)} tone="neutral" />
         <Metric label="Latency" value={`${fmt(telemetry?.latency_ms, 0)} ms`} tone="neutral" />
@@ -604,6 +642,40 @@ export default function App() {
               <TelemetryRow label="Deadman" value={!telemetry ? '--' : telemetry.interlocks.deadman ? 'HELD' : 'OFF'} />
               <TelemetryRow label="Buzzer cue" value={!health ? '--' : health.buzzer_enabled ? 'ENABLED' : 'DISABLED'} detail={health ? 'Backend-configured' : undefined} />
               <TelemetryRow label="CPU / Throttle" value={telemetry?.cpu_temp_c == null && health?.cpu_temp_c == null ? '--' : `${fmt(telemetry?.cpu_temp_c ?? health?.cpu_temp_c, 1)} C`} detail={piHealth} tone={underVolt ? 'bad' : undefined} />
+              <div className="deadman-control">
+                <button
+                  className={`btn ${telemetry?.interlocks.deadman ? 'btn-warn' : 'btn-secondary'}`}
+                  type="button"
+                  disabled={!deadmanAllowed}
+                  aria-pressed={!!telemetry?.interlocks.deadman}
+                  onPointerDown={(event) => {
+                    event.preventDefault()
+                    event.currentTarget.setPointerCapture(event.pointerId)
+                    startDeadman()
+                  }}
+                  onPointerUp={stopDeadman}
+                  onPointerCancel={stopDeadman}
+                  onLostPointerCapture={stopDeadman}
+                  onKeyDown={(event) => {
+                    if (event.code === 'Space') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      startDeadman()
+                    }
+                  }}
+                  onKeyUp={(event) => {
+                    if (event.code === 'Space') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      stopDeadman()
+                    }
+                  }}
+                  onBlur={stopDeadman}
+                >
+                  {telemetry?.interlocks.deadman ? 'RELEASE TO DISENGAGE' : 'HOLD FOR TARGET LOCK'}
+                </button>
+                <p className="help-text">Available in AUTO. The input expires automatically when released or disconnected.</p>
+              </div>
             </div>
           </section>
         </aside>

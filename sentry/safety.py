@@ -23,11 +23,10 @@ class State(str, Enum):
 
 
 class SafetyController:
-    def __init__(self, motion: MotionSystem, buzzer: Buzzer, simulation: bool,
+    def __init__(self, motion: MotionSystem, buzzer: Buzzer,
                  camera_timeout_ms: int, event_log):
         self.motion = motion
         self.buzzer = buzzer
-        self.simulation = simulation
         self.camera_timeout = camera_timeout_ms / 1000
         self.log = event_log
         self.state = State.BOOT

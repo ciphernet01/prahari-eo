@@ -87,8 +87,8 @@ def dashboard():
 @app.get("/api/health")
 def health():
     rt = app.state.runtime
-    return {"status": "ok", "simulation": rt.simulation,
-            "camera": rt.camera.status, "state": rt.safety.state.value,
+    return {"status": "ok", "camera": rt.camera.status,
+            "state": rt.safety.state.value,
             "home_switches_enabled": config["motors"]["homing_switches_enabled"],
             "buzzer_enabled": config["safety"]["buzzer_enabled"],
             "cpu_temp_c": rt._cpu_temp, "throttled": rt._throttled,

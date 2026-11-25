@@ -22,5 +22,4 @@ fi
 sudo install -m 0644 "$PROJECT_DIR/deploy/prahari.service" /etc/systemd/system/prahari.service
 sudo sed -i "s/^User=dtc$/User=$PI_USER/; s|^WorkingDirectory=/home/dtc/prahari-eo$|WorkingDirectory=$INSTALL_DIR|; s|^ExecStart=/home/dtc/prahari-env|ExecStart=$VENV_DIR|" /etc/systemd/system/prahari.service
 sudo systemctl daemon-reload
-echo "Installed. Service is not enabled yet. Review config.yaml and secure the frame and verify the configured soft limits before setting PRAHARI_SIM=0 in /etc/prahari.env."
-echo "To run it manually in dry-run: PRAHARI_SIM=1 $VENV_DIR/bin/python -m sentry.launch"
+echo "Installed. Service is not enabled yet. Review config.yaml, secure the frame, and verify the configured soft limits before enabling the hardware service."

@@ -7,17 +7,18 @@ The simple local workflow is IDLE, JOG, or AUTO; selecting JOG/AUTO after
 calibration enables camera motion. Manual movement uses WASD, arrow keys, or the
 on-screen pad. No projectile, laser, or person-detection model is included.
 
-This repository can be developed on Windows and copied to the Pi. The Pi is the
-hardware host for the finished system. Simulation is a development mode only.
+This repository can be developed on Windows and copied to the Pi. The backend
+uses only physical camera and GPIO inputs and must run on the configured Pi.
 
 ## State of the hardware integration
 
 The HAT and both motors passed the bench tests documented in `sitrep.txt`. The
 motor map, active-high enable polarity, 1/16 DIP setting, and supply arrangement
 are in [docs/wiring.md](docs/wiring.md). The frame and limit switches are not
-yet fitted according to the build spec. Until the assembled frame is checked,
-use simulation or keep the motors detached from it. GPIO jogging is bounded by
-configured software limits but cannot replace physical stops or homing.
+yet fitted according to the build spec. Keep motor power disconnected until
+the assembled frame and physical stops have been checked. GPIO jogging is
+bounded by configured software limits but cannot replace physical stops or
+homing.
 
 ## Dashboard build
 
@@ -34,24 +35,19 @@ For frontend development, keep FastAPI running in another terminal, then run `cd
 
 ## Windows development
 
-Real hardware mode is the default (`PRAHARI_SIM=0`). It expects the camera and
-GPIO hardware to be present; a missing camera is reported as unavailable and
-missing GPIO drivers fail startup rather than silently substituting simulated
-data. For UI or logic development without hardware, simulation must be
-explicitly enabled:
+On Windows, build and run the dashboard and hardware-independent tests. The
+backend must run on the Raspberry Pi with the configured camera and GPIO
+hardware; it does not generate replacement frames or axis data.
 
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 py -m pip install -r requirements.txt
-$env:PRAHARI_SIM = "1"
-py -m sentry.launch
+py -m pytest
 ```
 
-Open `http://127.0.0.1:8000`. Simulation uses a generated moving marker and
-does not open GPIO. To use a local webcam while keeping motors simulated, set
-`$env:PRAHARI_CAMERA_SIM = "0"` as well. Never enable simulation for a real
-hardware run.
+Run `npm run dev` from `web` to work on the dashboard. To use the full system,
+start the service on the assembled Raspberry Pi and connect to its dashboard.
 
 ## Raspberry Pi 5 deployment
 
@@ -68,20 +64,13 @@ source ~/prahari-env/bin/activate
 python -m pip install 'fastapi>=0.115,<1' 'uvicorn[standard]>=0.30,<1'
 ```
 
-For software-only checks, simulation is opt-in:
-
-```bash
-PRAHARI_SIM=1 PRAHARI_CAMERA_SIM=0 ~/prahari-env/bin/python -m sentry.launch
-```
-
 For actual hardware, after the frame and travel stops are built and checked,
-run with the default hardware mode (`PRAHARI_SIM=0`). The dashboard and API need no token while bound to
-loopback (`127.0.0.1`). To use a second device on trusted Wi-Fi, set a strong
-`PRAHARI_TOKEN` and `PRAHARI_HOST=0.0.0.0`; never
-forward the service port to the public internet. For a service install, run
-`bash scripts/install_pi.sh` from `~/prahari-eo`, create `/etc/prahari.env` with
-your chosen `PRAHARI_SIM`, `PRAHARI_HOST`, and `PRAHARI_TOKEN`, review the unit,
-then enable it:
+start the service on the Pi. The dashboard and API need no token while bound
+to loopback (`127.0.0.1`). To use a second device on trusted Wi-Fi, set a strong
+`PRAHARI_TOKEN` and `PRAHARI_HOST=0.0.0.0`; never forward the service port to
+the public internet. For a service install, run `bash scripts/install_pi.sh`
+from `~/prahari-eo`, configure `/etc/prahari.env` with `PRAHARI_HOST` and
+`PRAHARI_TOKEN`, review the unit, then enable it:
 
 ```bash
 sudo systemctl enable --now prahari
@@ -97,8 +86,8 @@ the runtime reports non-zero flags as a fault.
 1. Secure the camera pan/tilt assembly and confirm the configured soft limits
    match the safe mechanical travel. Keep the motor power switch accessible.
 2. Keep the buzzer relay disabled while the buzzer is disconnected.
-3. Start with `PRAHARI_SIM=0` for real motors and the real camera. On the local
-   Pi, the service binds to `127.0.0.1`; no API token is required on loopback.
+3. Start the service on the Pi with the real camera attached. On the local Pi,
+   the service binds to `127.0.0.1`; no API token is required on loopback.
 4. With the axes centered and stationary, use **Set Current Zero** twice to
    confirm calibration. Select **JOG** and use short WASD/arrow-pad movements.
    Select **AUTO** for red/ArUco marker or motion tracking; select **IDLE** to
@@ -115,16 +104,19 @@ a strong `PRAHARI_TOKEN` before binding it to a trusted LAN.
 - `GET /api/health`, `GET /api/telemetry`, `WS /ws/telemetry`
 - `GET /video` (MJPEG)
 - `POST /api/jog` (hold-to-move velocity; expires after 300 ms)
-- `POST /api/arm` and `POST /api/deadman` (legacy routes; not called by dashboard)
+- `POST /api/arm` (legacy route) and `POST /api/deadman` (dashboard hold control)
 - `POST /api/home`, `POST /api/calibrate`, `POST /api/mode`
 - `POST /api/estop` (always accepted; no token needed)
 - `GET/PUT /api/config` for detector thresholds and PID gains
 - `GET /api/log`
 
-The dashboard has no ARM, dead-man, or direct buzzer buttons. JOG/AUTO mode
-selection enables motion after zero calibration; IDLE stops it. Buzzer output
-remains disabled unless explicitly configured. Detector choices are `color`,
-`aruco`, and `motion` (simple frame-difference motion detection).
+JOG/AUTO mode selection enables motion after zero calibration; IDLE stops it.
+The dead-man control is a hold-to-confirm input for stable target lock and the
+optional buzzer cue. Buzzer output remains disabled unless explicitly
+configured. Pan/tilt angles are estimated from emitted motor steps; this build
+has no shaft encoders, so these are not measured position feedback. Detector
+choices are `color`, `aruco`, and `motion` (simple frame-difference motion
+detection).
 
 ## Software checks
 

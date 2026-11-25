@@ -7,14 +7,13 @@ import time
 
 
 class Buzzer:
-    def __init__(self, pin: int, active_low: bool, enabled: bool, simulation: bool):
+    def __init__(self, pin: int, active_low: bool, enabled: bool):
         self.enabled = enabled
-        self.simulation = simulation
         self._last_pulse = 0.0
         self._lock = threading.Lock()
         self._timer: threading.Timer | None = None
         self._output = None
-        if enabled and not simulation:
+        if enabled:
             os.environ.setdefault("GPIOZERO_PIN_FACTORY", "lgpio")
             from gpiozero import OutputDevice
             self._output = OutputDevice(pin, active_high=not active_low, initial_value=False)

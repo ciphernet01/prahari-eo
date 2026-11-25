@@ -1,22 +1,19 @@
-"""Latest-frame camera reader with simulation available only by explicit opt-in."""
+"""Latest-frame reader for the configured physical camera."""
 from __future__ import annotations
 
-import math
 import os
 import sys
 import threading
 import time
 
 import cv2
-import numpy as np
 
 from .config import camera_config
 
 
 class Capture:
-    def __init__(self, simulation: bool):
+    def __init__(self):
         self.cfg = camera_config()
-        self.simulation = simulation
         self._lock = threading.Lock()
         self._frame = None
         self._timestamp = 0.0
@@ -24,8 +21,7 @@ class Capture:
         self._capture = None
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="camera", daemon=True)
-        if not simulation:
-            self._open_camera()
+        self._open_camera()
         self._thread.start()
 
     def _open_camera(self) -> None:
@@ -53,16 +49,6 @@ class Capture:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            if self.simulation:
-                t = time.monotonic()
-                frame = np.zeros((self.cfg["height"], self.cfg["width"], 3), dtype=np.uint8)
-                x = int(self.cfg["width"] / 2 + math.sin(t * 0.45) * self.cfg["width"] * 0.25)
-                cv2.circle(frame, (x, self.cfg["height"] // 2), 24, (0, 0, 255), -1)
-                cv2.putText(frame, "SIMULATION - RED OBJECT", (12, 28),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-                self._publish(frame)
-                self._stop.wait(1 / max(1, self.cfg["fps"]))
-                continue
             if self._capture is None or not self._capture.isOpened():
                 self._error = f"Could not open camera device {self.cfg['device']}"
                 self._open_camera()
@@ -95,8 +81,7 @@ class Capture:
         _, stamp = self.latest()
         age_ms = round((time.monotonic() - stamp) * 1000, 1) if stamp else None
         available = age_ms is not None and age_ms <= self.cfg["stale_ms"]
-        return {"available": available, "age_ms": age_ms, "error": self._error,
-                "simulation": self.simulation}
+        return {"available": available, "age_ms": age_ms, "error": self._error}
 
     def close(self) -> None:
         self._stop.set()

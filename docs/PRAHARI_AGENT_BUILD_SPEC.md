@@ -13,7 +13,7 @@ E-STOP and accessible physical motor-power switch.
 
 1. Read this whole file before writing code.
 2. The hardware facts in section 3 were **verified on the bench**. Do not "correct" them from generic datasheets or memory. In particular, the motor enable pin is **active HIGH** on this HAT.
-3. Anything that moves a motor or switches the relay must go through `safety.py`. Every hardware module must also run with `--dry-run` / `PRAHARI_SIM=1` (no GPIO, fake camera) so you can test without the device.
+3. Anything that moves a motor or switches the relay must go through `safety.py`. The running service uses physical hardware only; unit tests may replace GPIO/camera interfaces with test doubles, but must not add simulated runtime inputs.
 4. Never run motor tests unattended. Ask the human to confirm: 12V is on, nothing is attached to the shafts (or the frame is clear), and a hand is near the 12V switch.
 5. **Out of scope. Do not add:**
    - any projectile, launcher, gel blaster, dart or laser control;
@@ -157,7 +157,6 @@ turret/
     fire.py          # relay output, pulse, cooldown, interlock check
     server.py        # FastAPI: video, telemetry WebSocket, commands
     logger.py
-    sim.py           # fake camera, fake GPIO, for --dry-run
     main.py
   tests/
     test_control.py  test_safety.py  test_geometry.py   # pure logic, pytest
@@ -216,7 +215,7 @@ Run detection in its own thread or every Nth frame, with a CSRT/KCF tracker betw
 See section 10. The API exposes video, telemetry, authenticated ARM/dead-man, hold-to-move jog, mode, e-stop, config and the event log. It has no direct buzzer or e-stop-clear command.
 
 ### 7.8 `logger.py`
-JSON lines, rotating files: state changes, simulated shots (target error at trigger time), faults, throttle flags.
+JSON lines, rotating files: state changes, target-lock indications, faults, throttle flags.
 
 ---
 
@@ -313,7 +312,7 @@ There is no direct buzzer or e-stop-clear endpoint. The token-protected local da
 
 ## 11. Test plan
 
-### 11.1 Software only (agent can run, with `--dry-run`)
+### 11.1 Hardware-independent unit tests
 - PID: step response, anti-windup, deadband, velocity clamp.
 - Geometry: pixel to degree conversion at the frame edges and the centre.
 - State machine: every transition in section 8, including illegal ones (for example the relay pulse request while in `SAFE` must be refused).
@@ -336,7 +335,7 @@ There is no direct buzzer or e-stop-clear endpoint. The token-protected local da
 ### 11.3 Performance protocol (adapted from the paper)
 Repeat 10 trials per condition: distance 1 m, 2 m, 3 m; light 140 lux and 15 lux; target speed 0.1-1 m/s. Record:
 - **Tracking success per direction** (left, right, up, down), as the paper's Table 1. Report the mean of horizontal and vertical.
-- **Centred-at-trigger rate:** the percentage of simulated trigger events where the target centre was within tolerance. (This replaces the paper's projectile hit rate.)
+- **Centred-at-lock rate:** the percentage of observed lock events where the target centre was within tolerance.
 - Time to lock, and steady-state error in pixels.
 
 Compare tracking success against the paper's 85-100% range.
@@ -350,7 +349,7 @@ Compare tracking success against the paper's 85-100% range.
 3. `control.py` plus unit tests, then a closed loop with real motors on the bench.
 4. `safety.py` state machine, dashboard ARM/dead-man, e-stop, watchdogs.
 5. `fire.py` optional relay and buzzer, disabled until its module and polarity are confirmed.
-6. `server.py` mock-first (same contract as section 10), then the real data.
+6. `server.py` wired to the real camera, GPIO, and telemetry sources.
 7. Homing once the limit switches are fitted.
 8. Tuning, tests (section 11), README, demo.
 

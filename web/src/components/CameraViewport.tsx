@@ -20,14 +20,14 @@ export function CameraViewport({
   axesCalibrated,
   link,
 }: Props) {
-  const cameraAvailable = !!health?.camera.available
+  const cameraAvailable = telemetry?.camera?.available ?? !!health?.camera.available
   const disconnected = !cameraAvailable || link === 'SERVICE OFFLINE' || link === 'DISCONNECTED' || link === 'LINK ERROR'
   const reconnecting = link === 'CONNECTING'
   const live = cameraAvailable && !disconnected && !reconnecting
   const target = telemetry?.target ?? null
   const pan = telemetry?.axes.pan.calibrated ? telemetry.axes.pan.deg : null
   const tilt = telemetry?.axes.tilt.calibrated ? telemetry.axes.tilt.deg : null
-  const targetStatus = !health?.camera.available
+  const targetStatus = !cameraAvailable
     ? health ? 'CAMERA OFFLINE' : 'WAITING FOR DATA'
     : target ? 'TARGET ACQUIRED' : telemetry ? 'NO TARGET' : 'WAITING FOR DATA'
 
@@ -59,8 +59,8 @@ export function CameraViewport({
             <span />
           </div>
           <div className="eo-hud-readout eo-hud-readout-top" aria-label="Camera position">
-            <span>PAN <strong>{pan == null ? '--' : `${pan.toFixed(1)}°`}</strong></span>
-            <span>TILT <strong>{tilt == null ? '--' : `${tilt.toFixed(1)}°`}</strong></span>
+            <span>PAN EST <strong>{pan == null ? '--' : `${pan.toFixed(1)}°`}</strong></span>
+            <span>TILT EST <strong>{tilt == null ? '--' : `${tilt.toFixed(1)}°`}</strong></span>
           </div>
           <div className="eo-hud-readout eo-hud-readout-bottom" aria-label="Target tracking">
             <span className="eo-track-indicator" />

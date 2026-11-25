@@ -53,7 +53,7 @@ class FakeLog:
 
 def make_safety(*, arm=True, deadman=False):
     motion, buzzer = FakeMotion(), FakeBuzzer()
-    safety = SafetyController(motion, buzzer, True, 500, FakeLog())
+    safety = SafetyController(motion, buzzer, 500, FakeLog())
     safety._camera_last = time.monotonic()
     if arm:
         safety.set_arm(True)

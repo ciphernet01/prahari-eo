@@ -10,7 +10,7 @@ from typing import Any
 
 class Axis:
     def __init__(self, name: str, cfg: dict[str, Any], motor_cfg: dict,
-                 simulation: bool, home_pin: int | None = None):
+                 home_pin: int | None = None):
         self.name = name
         self.cfg = cfg
         self.steps_per_degree = motor_cfg["steps_per_rev"] / 360.0
@@ -19,7 +19,6 @@ class Axis:
         self.max_sps = min(motor_cfg["max_steps_per_second"],
                            cfg["max_dps"] * self.steps_per_degree)
         self.accel = motor_cfg["acceleration_steps_per_second2"]
-        self.simulation = simulation
         self.position_steps = 0
         self.calibrated = False
         self._target_sps = 0.0
@@ -32,18 +31,15 @@ class Axis:
         self._gpio = None
         self._home = None
 
-        if not simulation:
-            os.environ.setdefault("GPIOZERO_PIN_FACTORY", "lgpio")
-            from gpiozero import DigitalInputDevice, OutputDevice
-            self._gpio = (
-                OutputDevice(cfg["dir"], initial_value=False),
-                OutputDevice(cfg["step"], initial_value=False),
-                OutputDevice(cfg["en"], initial_value=False),
-            )
-            if home_pin is not None:
-                self._home = DigitalInputDevice(home_pin, pull_up=True, bounce_time=0.02)
-        else:
-            self._sim_position = 0.0
+        os.environ.setdefault("GPIOZERO_PIN_FACTORY", "lgpio")
+        from gpiozero import DigitalInputDevice, OutputDevice
+        self._gpio = (
+            OutputDevice(cfg["dir"], initial_value=False),
+            OutputDevice(cfg["step"], initial_value=False),
+            OutputDevice(cfg["en"], initial_value=False),
+        )
+        if home_pin is not None:
+            self._home = DigitalInputDevice(home_pin, pull_up=True, bounce_time=0.02)
         self._thread = threading.Thread(target=self._run, name=f"axis-{name}", daemon=True)
         self._thread.start()
 
@@ -138,9 +134,8 @@ class Axis:
     def emergency_stop(self) -> None:
         self.stop()
         self._emergency.set()
-        if self._gpio:
-            self._gpio[1].off()
-            self._gpio[2].off()
+        self._gpio[1].off()
+        self._gpio[2].off()
 
     def _run(self) -> None:
         speed = 0.0
@@ -152,9 +147,8 @@ class Axis:
                 phase = 0.0
                 with self._lock:
                     self._actual_sps = 0.0
-                if self._gpio:
-                    self._gpio[1].off()
-                    self._gpio[2].off()
+                self._gpio[1].off()
+                self._gpio[2].off()
                 self._closing.wait(0.005)
                 continue
             now = time.monotonic()
@@ -171,8 +165,7 @@ class Axis:
             if abs(speed) < 1.0 and abs(target) < 1.0:
                 speed = 0.0
                 phase = 0.0
-                if self._gpio:
-                    self._gpio[2].off()
+                self._gpio[2].off()
                 self._closing.wait(0.005)
                 continue
             direction = 1 if speed > 0 else -1
@@ -187,24 +180,21 @@ class Axis:
                 speed = 0.0
                 self._fault = "Home switch limit reached"
                 continue
-            if self._gpio:
-                direction_pin, step_pin, enable_pin = self._gpio
-                enable_pin.on()  # tested HAT B enable polarity: high = enabled
-                direction_pin.value = bool((direction > 0) != self.cfg.get("invert", False))
+            direction_pin, step_pin, enable_pin = self._gpio
+            enable_pin.on()  # tested HAT B enable polarity: high = enabled
+            direction_pin.value = bool((direction > 0) != self.cfg.get("invert", False))
             phase += abs(speed) * dt
             while phase >= 1.0:
-                if self._gpio:
-                    self._gpio[1].on()
-                    time.sleep(0.0005)
-                    self._gpio[1].off()
+                step_pin.on()
+                time.sleep(0.0005)
+                step_pin.off()
                 with self._lock:
                     self.position_steps += direction
                 phase -= 1.0
             wait = max(0.0005, min(0.005, (1.0 - phase) / max(abs(speed), 1.0)))
             self._closing.wait(wait)
-        if self._gpio:
-            self._gpio[1].off()
-            self._gpio[2].off()
+        self._gpio[1].off()
+        self._gpio[2].off()
 
     def close(self) -> None:
         self.stop()
@@ -212,27 +202,33 @@ class Axis:
         self._thread.join(timeout=2)
         if self._home:
             self._home.close()
-        if self._gpio:
-            for device in self._gpio:
-                device.off()
-                device.close()
+        for device in self._gpio:
+            device.off()
+            device.close()
 
 
 class MotionSystem:
-    def __init__(self, cfg: dict, simulation: bool):
+    def __init__(self, cfg: dict):
         self.cfg = cfg
-        self.simulation = simulation
-        if not simulation:
-            # GPIO4 has a pull-up at boot on this documented build; force both
-            # HAT enables low before gpiozero claims them.
-            subprocess.run(["pinctrl", "set", "12,4", "op", "dl"], check=True)
+        # GPIO4 has a pull-up at boot on this documented build; force both
+        # HAT enables low before gpiozero claims them.
+        subprocess.run(["pinctrl", "set", "12,4", "op", "dl"], check=True)
         switches = cfg.get("homing_switches_enabled", False)
-        self.axes = {
-            "pan": Axis("pan", cfg["pan"], cfg, simulation,
-                        cfg.get("home_pan_pin") if switches else None),
-            "tilt": Axis("tilt", cfg["tilt"], cfg, simulation,
-                         cfg.get("home_tilt_pin") if switches else None),
-        }
+        self.axes = {}
+        try:
+            self.axes["pan"] = Axis(
+                "pan", cfg["pan"], cfg,
+                cfg.get("home_pan_pin") if switches else None,
+            )
+            self.axes["tilt"] = Axis(
+                "tilt", cfg["tilt"], cfg,
+                cfg.get("home_tilt_pin") if switches else None,
+            )
+        except Exception:
+            for axis in self.axes.values():
+                axis.close()
+            subprocess.run(["pinctrl", "set", "12,4", "op", "dl"], check=False)
+            raise
 
     def stop(self) -> None:
         for axis in self.axes.values():
@@ -250,8 +246,7 @@ class MotionSystem:
         self.stop()
         for axis in self.axes.values():
             axis.close()
-        if not self.simulation:
-            subprocess.run(["pinctrl", "set", "12,4", "op", "dl"], check=False)
+        subprocess.run(["pinctrl", "set", "12,4", "op", "dl"], check=False)
 
     def telemetry(self) -> dict:
         return {name: {"deg": axis.pos_deg, "calibrated": axis.calibrated,
