@@ -26,22 +26,36 @@ class Capture:
         self._thread = threading.Thread(target=self._run, name="camera", daemon=True)
         if not simulation:
             if sys.platform == "win32":
-                backend = cv2.CAP_DSHOW if hasattr(cv2, "CAP_DSHOW") else cv2.CAP_ANY
+                self._backend = cv2.CAP_DSHOW if hasattr(cv2, "CAP_DSHOW") else cv2.CAP_ANY
             else:
-                backend = cv2.CAP_V4L2 if hasattr(cv2, "CAP_V4L2") else cv2.CAP_ANY
+                self._backend = cv2.CAP_V4L2 if hasattr(cv2, "CAP_V4L2") else cv2.CAP_ANY
             backend_override = os.getenv("PRAHARI_CAMERA_BACKEND")
             if backend_override:
-                backend = int(backend_override)
-            self._capture = cv2.VideoCapture(self.cfg["device"], backend)
-            self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.cfg["width"])
-            self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.cfg["height"])
-            self._capture.set(cv2.CAP_PROP_FPS, self.cfg["fps"])
-            self._capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            self._capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-            self._capture.set(cv2.CAP_PROP_AUTOFOCUS, 0)
-            if not self._capture.isOpened():
-                self._error = f"Could not open camera device {self.cfg['device']}"
+                self._backend = int(backend_override)
+            self._error = f"Waiting for camera device {self.cfg['device']}"
+        else:
+            self._backend = cv2.CAP_ANY
         self._thread.start()
+
+    def _open_camera(self) -> bool:
+        try:
+            capture = cv2.VideoCapture(self.cfg["device"], self._backend)
+            capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.cfg["width"])
+            capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.cfg["height"])
+            capture.set(cv2.CAP_PROP_FPS, self.cfg["fps"])
+            capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            capture.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+        except cv2.error as exc:
+            self._error = f"Camera open failed: {exc}"
+            return False
+        if not capture.isOpened():
+            capture.release()
+            self._error = f"Could not open camera device {self.cfg['device']}; retrying"
+            return False
+        self._capture = capture
+        self._error = None
+        return True
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -55,14 +69,18 @@ class Capture:
                 self._publish(frame)
                 self._stop.wait(1 / max(1, self.cfg["fps"]))
                 continue
-            if self._capture is None or not self._capture.isOpened():
-                self._error = f"Could not open camera device {self.cfg['device']}"
-                self._stop.wait(0.1)
+            if self._capture is None and not self._open_camera():
+                self._stop.wait(0.5)
                 continue
-            ok, frame = self._capture.read()
+            try:
+                ok, frame = self._capture.read()
+            except cv2.error:
+                ok, frame = False, None
             if not ok:
-                self._error = "Camera frame read failed"
-                self._stop.wait(0.05)
+                self._error = "Camera frame read failed; reconnecting"
+                self._capture.release()
+                self._capture = None
+                self._stop.wait(0.25)
                 continue
             self._error = None
             self._publish(frame)
@@ -81,8 +99,10 @@ class Capture:
     @property
     def status(self) -> dict:
         _, stamp = self.latest()
-        return {"available": stamp > 0, "age_ms": round((time.monotonic()-stamp)*1000, 1)
-                if stamp else None, "error": self._error,
+        age_ms = round((time.monotonic() - stamp) * 1000, 1) if stamp else None
+        fresh = age_ms is not None and age_ms <= self.cfg["stale_ms"]
+        error = self._error or (None if fresh else "No fresh camera frames")
+        return {"available": fresh, "age_ms": age_ms, "error": error,
                 "simulation": self.simulation}
 
     def close(self) -> None:

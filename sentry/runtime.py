@@ -124,6 +124,8 @@ class Runtime:
             self._pi_5v_v = None
 
     def jpeg(self) -> bytes | None:
+        if not self.camera.status["available"]:
+            return None
         with self._display_lock:
             frame = None if self._display is None else self._display.copy()
         if frame is None:

@@ -36,7 +36,9 @@ class SafetyController:
         self.err_x = self.err_y = 0.0
         self.lock_frames = 0
         self._lock_notified = False
-        self._camera_last = time.monotonic()
+        # Start the camera watchdog only after the first real frame arrives.
+        # V4L2 device initialization can take longer than the watchdog interval.
+        self._camera_last: float | None = None
         self._jog_last = 0.0
         self._estop = False
         self._fault: str | None = None
@@ -125,7 +127,7 @@ class SafetyController:
             if axis_fault:
                 self._trip(axis_fault)
                 return
-            if now - self._camera_last > self.camera_timeout:
+            if self._camera_last is not None and now - self._camera_last > self.camera_timeout:
                 self._trip("camera watchdog")
                 return
             if not self.arm_on:

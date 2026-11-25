@@ -66,6 +66,10 @@ def main() -> int:
         health = api.call("/api/health")
         if health.get("simulation"):
             raise RuntimeError("Backend is in SIM mode; start it with PRAHARI_SIM=0 on the Pi.")
+        camera_deadline = time.monotonic() + 10
+        while not health.get("camera", {}).get("available") and time.monotonic() < camera_deadline:
+            time.sleep(0.5)
+            health = api.call("/api/health")
         if "throttle_active_flags_hex" not in health:
             raise RuntimeError("Backend is outdated; pull the latest main branch and restart PRAHARI.")
         active_flags = int(health.get("throttle_active_flags_hex") or "0", 16)
@@ -76,7 +80,8 @@ def main() -> int:
         if voltage is not None and voltage < 4.8:
             raise RuntimeError(f"Pi 5 V input is low ({voltage:.3f} V); motion locked out.")
         if not health.get("camera", {}).get("available"):
-            raise RuntimeError("Camera is not available; resolve that before jogging.")
+            detail = health.get("camera", {}).get("error") or "no fresh frames received"
+            raise RuntimeError(f"Camera is not available ({detail}); check /dev/video0 and retry.")
         state = api.call("/api/telemetry")
         if state.get("fault") or state.get("state") == "FAULT":
             raise RuntimeError(f"Backend fault is active: {state.get('fault') or 'inspect dashboard'}")
