@@ -73,6 +73,9 @@ dashboard's **Set current position as zero** action after each reboot. Fit
 physical stops for both ends of both axes. Software limits do not replace
 mechanical stops. The dashboard e-stop cannot protect against a crashed or
 unpowered Pi, so keep the existing HAT/supply motor-power switch accessible.
+The current software travel window, relative to the confirmed zero, is pan
+−60° to +60° and tilt −35° to +45°. Confirm the assembled frame and cable slack
+can safely cover that travel before jogging to the limits.
 This remains a local marker-tracking prototype, not a field-rated remote
 interlock or threat-response system.
 
@@ -101,14 +104,14 @@ Do not set these to `dh`; high enables the tested drivers.
    hand while driver power is off.
 2. Start with `PRAHARI_SIM=1` to verify the dashboard and API. Dry-run uses a
    synthetic red marker and does not claim any GPIO.
-3. With the frame clear and 12 V switch accessible, set `PRAHARI_SIM=0`. Keep
-   dashboard ARM off. Jog is rejected until both axes are calibrated.
+3. With the frame clear and 12 V switch accessible, set `PRAHARI_SIM=0`. Leave
+   the dashboard in IDLE. Jog is unavailable until both axes are calibrated.
 4. Center the camera manually, then use **Set current position as zero**. The
    system's software limits are relative to that point. If home switches are
    fitted and `homing_switches_enabled: true` is set in `config.yaml`, home at
    the negative travel switches instead; each switch must be placed at its
    configured negative limit.
-5. Turn dashboard ARM on and use short, slow manual jogs. Verify each arrow,
+5. Select JOG and use short, slow manual jogs. Verify each arrow,
    release timeout, soft limit, and physical stop separately before attaching
    any moving accessories.
 6. Keep buzzer output disabled until its relay model, active polarity, and

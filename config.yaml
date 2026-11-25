@@ -10,8 +10,8 @@ motors:
   steps_per_rev: 3200
   max_steps_per_second: 1000
   acceleration_steps_per_second2: 1800
-  pan: {dir: 13, step: 19, en: 12, min_deg: -45, max_deg: 45, invert: false, max_dps: 90}
-  tilt: {dir: 24, step: 18, en: 4, min_deg: -20, max_deg: 30, invert: false, max_dps: 60}
+  pan: {dir: 13, step: 19, en: 12, min_deg: -60, max_deg: 60, invert: false, max_dps: 90}
+  tilt: {dir: 24, step: 18, en: 4, min_deg: -35, max_deg: 45, invert: false, max_dps: 60}
   homing_switches_enabled: false
   home_pan_pin: 23
   home_tilt_pin: 25
