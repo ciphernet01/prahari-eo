@@ -20,7 +20,7 @@ from urllib.request import Request, urlopen
 
 POLL_S = 0.025
 SEND_S = 0.100
-KEY_HOLD_S = 0.180  # terminal auto-repeat refresh; backend stops after 300 ms
+KEY_HOLD_S = 0.250  # terminal has no key-up events; stay under the 300 ms API watchdog
 KEYS = {"w": "up", "a": "left", "s": "down", "d": "right"}
 
 
@@ -49,10 +49,10 @@ class Api:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Hold WASD to jog PRAHARI pan/tilt")
+    parser = argparse.ArgumentParser(description="Use WASD key repeat to jog PRAHARI pan/tilt")
     parser.add_argument("--url", default=os.getenv("PRAHARI_URL", "http://127.0.0.1:8000"),
                         help="PRAHARI base URL (default: %(default)s)")
-    parser.add_argument("--speed", type=float, default=8.0,
+    parser.add_argument("--speed", type=float, default=12.0,
                         help="Jog speed in degrees/second (default: %(default)s)")
     args = parser.parse_args()
     if not 0 < args.speed <= 60:
@@ -66,9 +66,15 @@ def main() -> int:
         health = api.call("/api/health")
         if health.get("simulation"):
             raise RuntimeError("Backend is in SIM mode; start it with PRAHARI_SIM=0 on the Pi.")
-        if health.get("throttled") or health.get("throttle_flags_hex") not in (None, "0x00000000"):
-            flags = health.get("throttle_flags_hex") or "non-zero"
-            raise RuntimeError(f"Pi reports throttling/undervoltage flags ({flags}); motion locked out.")
+        if "throttle_active_flags_hex" not in health:
+            raise RuntimeError("Backend is outdated; pull the latest main branch and restart PRAHARI.")
+        active_flags = int(health.get("throttle_active_flags_hex") or "0", 16)
+        if health.get("throttled") or active_flags:
+            flags = health.get("throttle_active_flags_hex") or "non-zero"
+            raise RuntimeError(f"Pi reports active throttling/undervoltage ({flags}); motion locked out.")
+        voltage = health.get("pi_5v_v")
+        if voltage is not None and voltage < 4.8:
+            raise RuntimeError(f"Pi 5 V input is low ({voltage:.3f} V); motion locked out.")
         if not health.get("camera", {}).get("available"):
             raise RuntimeError("Camera is not available; resolve that before jogging.")
         state = api.call("/api/telemetry")
@@ -90,7 +96,7 @@ def main() -> int:
         return 1
 
     print("PRAHARI terminal jog | W/S = tilt | A/D = pan | Q or Ctrl-C = stop/exit")
-    print(f"Speed: {args.speed:g} deg/s. Hold a key; release it to stop that axis.")
+    print(f"Speed: {args.speed:g} deg/s. Tap for a nudge; hold to repeat. Release to stop.")
     print("Keep the mechanism clear and the physical motor power switch reachable.")
 
     fd = sys.stdin.fileno()
@@ -118,6 +124,9 @@ def main() -> int:
                     continue
                 if key in KEYS:
                     last_key[key] = time.monotonic()
+                    # Send the initial tap immediately; terminal key repeat may
+                    # have a longer initial delay than the backend watchdog.
+                    last_send = 0.0
 
             now = time.monotonic()
             desired = command()

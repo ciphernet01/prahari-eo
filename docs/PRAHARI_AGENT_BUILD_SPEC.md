@@ -69,7 +69,8 @@ The paper uses a Raspberry Pi 3B+, a Logitech C310 and a stepper HAT with two st
 | Motors | 2 x NEMA 17 **JK42HS60-1704**: 1.8 deg (200 steps/rev), 1.7 A/phase, 3 ohm, 6.2 mH, 7.3 kg.cm, 4-wire bipolar |
 | Camera | Logitech C525 USB webcam, `/dev/video0`, MJPG 640x480 |
 | Trigger | Relay module (type to be confirmed: single channel, active-low or high) switching a buzzer |
-| Power | 12 V 5 A supply into the HAT DC jack |
+| Motor power | Regulated 12 V 5 A supply into the HAT DC jack |
+| Pi power | Official 27 W USB-C supply for Raspberry Pi 5; HAT Pi-power switch OFF |
 | Frame | Laminated MDF base and plates, aluminium angle tilt cradle (direct drive, no gearing) |
 
 ### 3.2 Motor wiring (verified)
@@ -110,10 +111,10 @@ Proposed pins for the rest (not yet wired, confirm with the human):
 2. **GPIO 4 has a pull-up at boot,** so motor 2 is energised (whining, shaft held) until software drives it low. Run `pinctrl set 12,4 op dl` at startup, and again **after** every program exit (releasing a GPIO returns it to its default pull).
 3. **Microstepping:** hardware mode, DIP switches S0-S5. Full-step = all 0. **1/16 = S0,S1,S2 = 0,0,1 and S3,S4,S5 = 0,0,1.** The board silkscreen shows 0 at the top and 1 at the bottom. The mode GPIO pins must **not** be driven (the six solder resistors are not fitted). Steps per revolution at 1/16 = **3200**, so 8.889 steps per degree.
 4. **Current limit:** the factory pot setting is about 1.4 V, which is about 1.4 A (current in amps equals Vref in volts, 0.2 ohm sense resistors). Target about 1.1 V. Never turn the pot fully counter-clockwise (about 3.3 A, above the chip rating). The pot adjuster is plastic; Vref is read at the middle solder leg of the pot, against the GND terminal.
-5. **HAT power switch ON** is required for the motors to run. With the switch ON the HAT's 5 V regulator also feeds the Pi's header. Verified bench setup: **HAT switch ON, Pi USB-C unplugged, 12 V on.** Never plug the Pi's USB-C in while the switch is ON (the manufacturer's demo notes disagree, so it is untested and not allowed here).
+5. **Power the Pi 5 separately.** The HAT power switch controls whether the HAT powers the Pi; keep it OFF when the Pi is on USB-C. The HAT motor drivers use the DC input. Never connect Pi USB-C while the HAT Pi-power switch is ON.
 6. **Speed:** the official demo runs full-step at 0.005 s per half-pulse. 1/16 microstepping was tested at 0.002 s, and at faster delays down to 0.0005 s (1000 steps/s) with no missed steps reported. Treat 1000 steps/s (about 112 deg/s) as the working ceiling until measured more.
 7. **Libraries:** the Pi 5 needs `lgpio` (via `gpiozero`'s lgpio backend). **pigpio, RPi.GPIO, wiringPi and bcm2835 do not work.** The official, working reference is `~/Stepper_Motor_HAT_B_Code/Raspberry PI/python-gpiozero/HR8825.py`.
-8. **Under-voltage watch:** the Pi runs from the HAT's regulator (about 3 A limit). Log `vcgencmd get_throttled` during camera + motor runs, and treat any non-zero flag as a fault to report.
+8. **Under-voltage watch:** the HAT's 5 V regulator is rated up to 3 A, below the recommended Pi 5 supply. The prior HAT-to-Pi setup measured 4.77978 V with `get_throttled=0x50000`. Use the separate Pi supply, then reboot and verify `vcgencmd get_throttled` is `0x0` and `vcgencmd pmic_read_adc EXT5V_V` is above 4.8 V before motion.
 
 ---
 

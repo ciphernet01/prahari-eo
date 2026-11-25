@@ -83,10 +83,13 @@ then enable it:
 sudo systemctl enable --now prahari
 ```
 
-On this verified setup, the HAT powers the Pi from its regulator: HAT switch ON,
-12 V supply connected, Pi USB-C unplugged. Do not connect the Pi USB-C while
-that switch is ON. Watch `vcgencmd get_throttled` during camera and motor load;
-the runtime reports non-zero flags as a fault.
+For the Pi 5 demo, power the Pi from its official 27 W USB-C supply and the
+HAT/motors from the regulated 12 V / 5 A supply. With all power off, leave the
+HAT's Pi-power switch OFF before connecting USB-C; never connect USB-C while
+that switch is ON. The earlier HAT-to-Pi setup measured 4.77978 V and logged
+undervoltage. After changing the supply path, reboot and confirm
+`vcgencmd get_throttled` is `0x0` and `vcgencmd pmic_read_adc EXT5V_V` is above
+4.8 V before jogging. See [docs/wiring.md](docs/wiring.md).
 
 ## First real-hardware sequence
 
@@ -112,9 +115,11 @@ python3 scripts/jog_terminal.py
 ```
 
 The client refuses motion in simulation, with an unavailable camera, or while
-the health endpoint reports throttle/undervoltage flags. If the axes are not
+the Pi reports active throttling or a low live 5 V reading. Historical flags
+are shown separately and do not block motion by themselves. If the axes are not
 calibrated, center them and type `YES` when prompted to set the current zero.
-Hold W/S for tilt and A/D for pan; press Q or Ctrl-C to stop and return to IDLE.
+Tap W/S for tilt nudges and A/D for pan; hold to repeat. Press Q or Ctrl-C to
+stop and return to IDLE.
 The backend's jog timeout remains the fallback if the terminal disconnects.
 
 The E-STOP is latched; restarting the service clears it after the cause has been

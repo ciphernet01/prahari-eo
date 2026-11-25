@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import threading
 import time
@@ -44,6 +45,9 @@ class Runtime:
         self._latency_ms = 0.0
         self._throttled = False
         self._throttle_flags_hex = None
+        self._throttle_active_flags_hex = None
+        self._throttle_history_flags_hex = None
+        self._pi_5v_v: float | None = None
         self._cpu_temp = None
         self._angular_error = {"pan": 0.0, "tilt": 0.0}
         self._last_system_read = 0.0
@@ -94,13 +98,30 @@ class Runtime:
             result = subprocess.run(["vcgencmd", "get_throttled"], capture_output=True,
                                     text=True, timeout=1, check=False)
             value = result.stdout.strip().split("=")[-1]
-            self._throttle_flags_hex = f"0x{int(value, 16):08x}"
-            self._throttled = int(value, 16) != 0
+            flags = int(value, 16)
+            active_flags = flags & 0xF
+            history_flags = (flags >> 16) & 0xF
+            self._throttle_flags_hex = f"0x{flags:08x}"
+            self._throttle_active_flags_hex = f"0x{active_flags:02x}"
+            self._throttle_history_flags_hex = f"0x{history_flags:02x}"
+            self._throttled = active_flags != 0
             if self._throttled:
-                self.safety.trip_fault(f"Pi reported throttled flags {value}")
+                self.safety.trip_fault(f"Pi has active throttling flags {self._throttle_active_flags_hex}")
         except (OSError, subprocess.SubprocessError, ValueError):
             self._throttled = False
             self._throttle_flags_hex = None
+            self._throttle_active_flags_hex = None
+            self._throttle_history_flags_hex = None
+        try:
+            result = subprocess.run(["vcgencmd", "pmic_read_adc", "EXT5V_V"],
+                                    capture_output=True, text=True, timeout=1, check=False)
+            match = re.search(r"=\s*([0-9]+(?:\.[0-9]+)?)\s*V", result.stdout)
+            self._pi_5v_v = float(match.group(1)) if match else None
+            if self._pi_5v_v is not None and self._pi_5v_v < 4.8:
+                self._throttled = True
+                self.safety.trip_fault(f"Pi 5 V input is low ({self._pi_5v_v:.3f} V)")
+        except (OSError, subprocess.SubprocessError, ValueError):
+            self._pi_5v_v = None
 
     def jpeg(self) -> bytes | None:
         with self._display_lock:
@@ -118,6 +139,9 @@ class Runtime:
                 "fps": round(self._fps, 1), "latency_ms": round(self._latency_ms, 1),
                 "cpu_temp_c": self._cpu_temp, "throttled": self._throttled,
                 "throttle_flags_hex": self._throttle_flags_hex,
+                "throttle_active_flags_hex": self._throttle_active_flags_hex,
+                "throttle_history_flags_hex": self._throttle_history_flags_hex,
+                "pi_5v_v": self._pi_5v_v,
                 "simulation": self.simulation}
 
     def close(self) -> None:

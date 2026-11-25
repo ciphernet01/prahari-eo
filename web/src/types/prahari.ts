@@ -15,6 +15,9 @@ export type Health = {
   cpu_temp_c?: number | null
   throttled?: boolean
   throttle_flags_hex?: string | null
+  throttle_active_flags_hex?: string | null
+  throttle_history_flags_hex?: string | null
+  pi_5v_v?: number | null
   auth_required: boolean
 }
 
@@ -58,6 +61,9 @@ export type Telemetry = {
   camera?: CameraStatus
   angular_error_deg?: { pan: number; tilt: number }
   throttle_flags_hex?: string | null
+  throttle_active_flags_hex?: string | null
+  throttle_history_flags_hex?: string | null
+  pi_5v_v?: number | null
 }
 
 export type Tuning = {

@@ -532,7 +532,11 @@ export default function App() {
               : ''
 
   const throttleHex = health?.throttle_flags_hex ?? telemetry?.throttle_flags_hex ?? 'NOT EXPOSED'
-  const piHealth = throttleHex === 'NOT EXPOSED' ? 'UNKNOWN' : underVolt ? 'THROTTLED' : 'NOMINAL'
+  const historyHex = health?.throttle_history_flags_hex ?? telemetry?.throttle_history_flags_hex
+  const hasThrottleHistory = !!historyHex && Number.parseInt(historyHex, 16) !== 0
+  const piVoltage = telemetry?.pi_5v_v ?? health?.pi_5v_v
+  const piHealth = throttleHex === 'NOT EXPOSED' ? 'UNKNOWN' : underVolt ? 'THROTTLED' : hasThrottleHistory ? 'HISTORY' : 'NOMINAL'
+  const piHealthDetail = `${piVoltage == null ? '' : `5V ${fmt(piVoltage, 2)} V · `}FLAGS ${throttleHex}`
   const connectionTone =
     link === 'ONLINE' ? 'ok' : link === 'E-STOP LATCHED' || link === 'FAULT' || link === 'SERVICE OFFLINE' ? 'bad' : 'warn'
 
@@ -552,7 +556,7 @@ export default function App() {
           <StatusPill tone={simulatedInputBlocked ? 'bad' : !health ? 'warn' : 'ok'} label="PLATFORM" value={simulatedInputBlocked ? 'INPUT REJECTED' : !health ? 'WAITING' : 'HARDWARE'} />
           <StatusPill tone={isEStop ? 'bad' : fault ? 'bad' : locked ? 'ok' : 'warn'} label="STATE" value={telemetry?.state ?? health?.state ?? 'UNKNOWN'} />
           <StatusPill tone={telemetry?.mode === 'auto' ? 'ok' : 'neutral'} label="MODE" value={telemetry?.mode?.toUpperCase() ?? '--'} />
-          <StatusPill tone={underVolt ? 'bad' : 'neutral'} label="PI HEALTH" value={piHealth} detail={`FLAGS ${throttleHex}`} />
+          <StatusPill tone={underVolt ? 'bad' : hasThrottleHistory ? 'warn' : 'neutral'} label="PI HEALTH" value={piHealth} detail={piHealthDetail} />
           <StatusPill tone="neutral" label="WS RTT" value={wsLatency == null ? '--' : `${wsLatency.toFixed(0)} ms`} />
         </div>
         <button className="estop-btn" onClick={() => void estopAction()} disabled={!!pending.estop} aria-label="Emergency stop">

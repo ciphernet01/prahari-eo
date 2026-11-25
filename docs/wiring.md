@@ -40,18 +40,19 @@ motors.
 
 ## 3. Power
 
-The tested bench setup is exact and must be preserved until we verify a
-different supply arrangement: regulated 12 V / 5 A into the HAT DC jack, HAT
-power switch ON, Pi USB-C unplugged. The HAT regulator then supplies the Pi.
-Never plug Pi USB-C in while the HAT switch is ON; that supply combination has
-not been tested. Turn 12 V off before connecting or changing motor wiring.
+For the Pi 5, use an independent official 27 W USB-C supply for the Pi and the
+regulated 12 V / 5 A supply for the HAT/motors. With all power off, set the
+HAT's Pi-power switch OFF before connecting USB-C. Waveshare describes this
+switch as controlling power to the Raspberry Pi; motor VM comes from the HAT's
+DC input. Never connect USB-C while the HAT switch is ON, as that joins two 5 V
+sources. [Waveshare HAT B wiki](https://www.waveshare.com/wiki/Stepper_Motor_HAT_%28B))
 
-The HAT input is 8.2–28 V. Its 5 V regulator is rated up to 3 A, while Pi 5
-documentation recommends a 5 V / 5 A supply for full USB peripheral power.
-That makes runtime undervoltage monitoring important with the webcam attached.
-If `vcgencmd get_throttled` reports non-zero flags during camera/motor load,
-stop and resolve power issues before increasing speed or load. See [Raspberry
-Pi's Pi 5 power guidance](https://www.raspberrypi.com/documentation/computers/getting-started.html?m=p).
+The earlier bench arrangement powered the Pi through the HAT's 5 V regulator
+(rated up to 3 A) and measured **4.77978 V**, with `get_throttled=0x50000`.
+The Pi 5 is recommended to use Raspberry Pi's 27 W USB-C supply. After a power
+change, reboot and confirm `vcgencmd get_throttled` returns `0x0` and
+`vcgencmd pmic_read_adc EXT5V_V` is above 4.8 V before enabling movement.
+[Raspberry Pi power guidance](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html)
 
 ## 4. Dashboard controls and optional home switches
 

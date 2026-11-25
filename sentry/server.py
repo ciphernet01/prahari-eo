@@ -93,6 +93,9 @@ def health():
             "buzzer_enabled": config["safety"]["buzzer_enabled"],
             "cpu_temp_c": rt._cpu_temp, "throttled": rt._throttled,
             "throttle_flags_hex": rt._throttle_flags_hex,
+            "throttle_active_flags_hex": rt._throttle_active_flags_hex,
+            "throttle_history_flags_hex": rt._throttle_history_flags_hex,
+            "pi_5v_v": rt._pi_5v_v,
             "auth_required": not local_only()}
 
 
