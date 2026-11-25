@@ -10,8 +10,22 @@ motors:
   steps_per_rev: 3200
   max_steps_per_second: 1000
   acceleration_steps_per_second2: 1800
-  pan: {dir: 13, step: 19, en: 12, min_deg: -45, max_deg: 45, invert: false, max_dps: 90}
-  tilt: {dir: 24, step: 18, en: 4, min_deg: -20, max_deg: 30, invert: false, max_dps: 60}
+  pan:
+    dir: 13
+    step: 19
+    en: 12
+    min_deg: -45
+    max_deg: 45
+    invert: false
+    max_dps: 90
+  tilt:
+    dir: 24
+    step: 18
+    en: 4
+    min_deg: -20
+    max_deg: 30
+    invert: false
+    max_dps: 60
   homing_switches_enabled: false
   home_pan_pin: 23
   home_tilt_pin: 25
@@ -29,9 +43,17 @@ safety:
   event_log: data/events.jsonl
 detect:
   backend: color
-  color: {h_min: 0, h_max: 10, s_min: 120, v_min: 80, min_area: 400}
-  aruco: {dictionary: DICT_4X4_50, id: 7}
-  motion: {min_area: 600}
+  color:
+    h_min: 0
+    h_max: 10
+    s_min: 120
+    v_min: 80
+    min_area: 400
+  aruco:
+    dictionary: DICT_4X4_50
+    id: 7
+  motion:
+    min_area: 600
 control:
   kp: 0.12
   ki: 0.0
